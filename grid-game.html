@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive Grid Game</title>
+<style>
+    body, html {
+        height: 100%;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #f0f0f0;
+    }
+    #grid {
+        display: grid;
+        grid-template-columns: repeat(15, 20px); /* Creates 15 columns */
+        grid-template-rows: repeat(15, 20px);    /* Creates 15 rows */
+        gap: 1px;
+    }
+    .square {
+        width: 20px;
+        height: 20px;
+        background-color: orange;
+        cursor: pointer; /* Changes the cursor to a pointer when hovering over the squares */
+    }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const grid = document.getElementById('grid');
+
+        for (let i = 0; i < 225; i++) { // 15*15 = 225
+            let square = document.createElement('div');
+            square.classList.add('square');
+            grid.appendChild(square);
+
+            square.addEventListener('click', function() {
+                if (square.style.backgroundColor === 'white' || square.style.backgroundColor === '') {
+                    square.style.backgroundColor = 'orange';
+                } else {
+                    square.style.backgroundColor = 'white';
+                }
+            });
+        }
+    });
+</script>
+</body>
+</html>
