@@ -185,6 +185,20 @@ function DogearManager:showSizeDialog()
                     end,
                 },
                 {
+                    text = _("Reset"),
+                    callback = function()
+                        G_reader_settings:delSetting("dogear_scale_factor")
+                        UIManager:close(size_dialog)
+                        UIManager:show(InfoMessage:new{
+                            text = _("Bookmark size reset to default."),
+                            timeout = 2,
+                        })
+                        UIManager:scheduleIn(2.5, function()
+                            self:promptRestart()
+                        end)
+                    end,
+                },
+                {
                     text = _("Apply"),
                     is_enter_default = true,
                     callback = function()
@@ -217,8 +231,71 @@ function DogearManager:showSizeDialog()
     size_dialog:onShowKeyboard()
 end
 
+--- Patches KOReader's ReaderDogear widget to apply saved scale and icon settings.
+-- ReaderDogear computes its size purely from screen dimensions and never reads
+-- dogear_scale_factor or dogear_custom_icon on its own, so we monkey-patch its
+-- init() and setupDogear() methods here to inject our values.
+function DogearManager:patchReaderDogear()
+    local scale_factor = G_reader_settings:readSetting("dogear_scale_factor") or 1
+    local custom_icon_path = G_reader_settings:readSetting("dogear_custom_icon")
+
+    -- Nothing to do if both settings are at their defaults.
+    if scale_factor == 1 and not custom_icon_path then
+        return
+    end
+
+    local ReaderDogear = require("apps/reader/modules/readerdogear")
+
+    -- Patch init() to multiply the min/max sizes by the scale factor.
+    if scale_factor ~= 1 then
+        local orig_init = ReaderDogear.init
+        ReaderDogear.init = function(rd_self)
+            orig_init(rd_self)
+            rd_self.dogear_min_size = math.ceil(rd_self.dogear_min_size * scale_factor)
+            rd_self.dogear_max_size = math.ceil(rd_self.dogear_max_size * scale_factor)
+            -- Force setupDogear to rebuild with the new sizes.
+            rd_self.dogear_size = nil
+            rd_self:setupDogear()
+        end
+    end
+
+    -- Patch setupDogear() to swap the built-in IconWidget for our custom image.
+    if custom_icon_path then
+        local ImageWidget = require("ui/widget/imagewidget")
+        local orig_setupDogear = ReaderDogear.setupDogear
+        ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
+            orig_setupDogear(rd_self, new_dogear_size)
+            -- Replace the freshly-created IconWidget with our custom file.
+            if rd_self.icon and rd_self.vgroup then
+                rd_self.icon:free()
+                rd_self.icon = ImageWidget:new{
+                    file = custom_icon_path,
+                    width = rd_self.dogear_size,
+                    height = rd_self.dogear_size,
+                    alpha = true,
+                }
+                rd_self.vgroup[2] = rd_self.icon
+            end
+        end
+    end
+
+    -- Also apply to the already-initialised instance when the plugin loads
+    -- after ReaderDogear (which is the common case inside ReaderUI).
+    if self.ui.dogear then
+        if scale_factor ~= 1 then
+            self.ui.dogear.dogear_min_size = math.ceil(self.ui.dogear.dogear_min_size * scale_factor)
+            self.ui.dogear.dogear_max_size = math.ceil(self.ui.dogear.dogear_max_size * scale_factor)
+        end
+        -- Force a full rebuild so both scale and icon patches take effect.
+        self.ui.dogear.dogear_size = nil
+        self.ui.dogear:setupDogear()
+        self.ui.dogear:resetLayout()
+    end
+end
+
 function DogearManager:init()
     self.ui.menu:registerToMainMenu(self)
+    self:patchReaderDogear()
 end
 
 function DogearManager:addToMainMenu(menu_items)
@@ -238,6 +315,22 @@ function DogearManager:addToMainMenu(menu_items)
                 keep_menu_open = false,
                 callback = function()
                     self:showSizeDialog()
+                end,
+            },
+            {
+                text = _("Reset to Original Dogear"),
+                keep_menu_open = false,
+                callback = function()
+                    G_reader_settings:delSetting("dogear_custom_icon")
+                    G_reader_settings:delSetting("dogear_custom_icon_name")
+                    G_reader_settings:delSetting("dogear_scale_factor")
+                    UIManager:show(InfoMessage:new{
+                        text = _("Dogear reset to original defaults."),
+                        timeout = 2,
+                    })
+                    UIManager:scheduleIn(2.5, function()
+                        self:promptRestart()
+                    end)
                 end,
             },
         },
