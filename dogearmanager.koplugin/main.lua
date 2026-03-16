@@ -4,8 +4,9 @@ Dogear Manager plugin for KOReader.
 Allows users to swap and resize their digital bookmark (dogear) icon
 directly from the Tools menu, without needing a computer.
 
-Custom dogear designs should be placed as image files in:
-    <koreader_data_dir>/icons/dogears/
+Custom dogear designs can be placed in either:
+    <plugin_folder>/icons/         (bundled with the plugin)
+    <koreader_data_dir>/icons/dogears/  (user-added icons)
 
 @module koplugin.DogearManager
 --]]--
@@ -35,31 +36,40 @@ local SUPPORTED_EXTENSIONS = {
     [".jpeg"] = true,
 }
 
---- Returns the path to the dogear icons folder.
+--- Returns the path to the user's dogear icons folder.
 function DogearManager:getIconsDir()
     return DataStorage:getDataDir() .. "/icons/dogears"
 end
 
---- Scans the icons/dogears folder and returns a list of valid image filenames.
-function DogearManager:scanDesigns()
-    local icons_dir = self:getIconsDir()
-    local designs = {}
+--- Returns the path to the icons folder bundled inside the plugin folder.
+function DogearManager:getPluginIconsDir()
+    return self.path .. "/icons"
+end
 
-    local ok, iter, dir_obj = pcall(lfs.dir, icons_dir)
-    if not ok then
-        return designs
-    end
-
+--- Scans a directory and appends valid image entries to the given list.
+-- Each entry is a table with keys: text (filename) and path (full path).
+local function scanDir(dir, list, seen)
+    local ok, iter, dir_obj = pcall(lfs.dir, dir)
+    if not ok then return end
     for entry in iter, dir_obj do
         if entry ~= "." and entry ~= ".." then
             local ext = entry:match("(%.[^%.]+)$")
-            if ext and SUPPORTED_EXTENSIONS[ext:lower()] then
-                table.insert(designs, entry)
+            if ext and SUPPORTED_EXTENSIONS[ext:lower()] and not seen[entry] then
+                seen[entry] = true
+                table.insert(list, { text = entry, path = dir .. "/" .. entry })
             end
         end
     end
+end
 
-    table.sort(designs)
+--- Scans both icon folders and returns a list of {text, path} tables.
+function DogearManager:scanDesigns()
+    local designs = {}
+    local seen = {}
+    -- Plugin-bundled icons come first; user icons can override by filename.
+    scanDir(self:getPluginIconsDir(), designs, seen)
+    scanDir(self:getIconsDir(), designs, seen)
+    table.sort(designs, function(a, b) return a.text < b.text end)
     return designs
 end
 
@@ -82,8 +92,7 @@ function DogearManager:promptRestart()
 end
 
 --- Applies the selected design by saving it to settings.
-function DogearManager:applyDesign(filename)
-    local full_path = self:getIconsDir() .. "/" .. filename
+function DogearManager:applyDesign(filename, full_path)
     G_reader_settings:saveSetting("dogear_custom_icon", full_path)
     G_reader_settings:saveSetting("dogear_custom_icon_name", filename)
 
@@ -102,20 +111,23 @@ function DogearManager:showDesignMenu()
     local designs = self:scanDesigns()
 
     if #designs == 0 then
-        local icons_dir = self:getIconsDir()
         UIManager:show(InfoMessage:new{
-            text = _("No custom bookmark designs found.\n\nPlace image files (.png, .svg, .bmp, .jpg) in:\n") .. icons_dir,
+            text = _("No custom bookmark designs found.\n\nPlace image files (.png, .svg, .bmp, .jpg) in:\n")
+                .. self:getPluginIconsDir() .. "\n" .. _("or") .. "\n"
+                .. self:getIconsDir(),
         })
         return
     end
 
     -- Build menu items from scanned designs.
     local menu_items = {}
-    for _, filename in ipairs(designs) do
+    for _, design in ipairs(designs) do
+        local filename = design.text
+        local full_path = design.path
         table.insert(menu_items, {
             text = filename,
             callback = function()
-                self:applyDesign(filename)
+                self:applyDesign(filename, full_path)
             end,
         })
     end
