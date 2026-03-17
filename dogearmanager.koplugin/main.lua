@@ -20,10 +20,13 @@ local Device = require("device")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
+local InputContainer = require("ui/widget/container/inputcontainer")
+local MovableContainer = require("ui/widget/container/movablecontainer")
 local Size = require("ui/size")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -189,8 +192,10 @@ function DogearManager:showSizeSlider(scale)
     scale = math.floor(scale * 10 + 0.5) / 10
     scale = math.max(0.5, math.min(4.0, scale))
 
-    -- Base preview size (approximates real dogear at scale 1.0).
-    local base_px    = Screen:scaleBySize(40)
+    -- Base preview size – matches the real dogear_max_size formula from
+    -- ReaderDogear: math.ceil(min(W, H) / 32).
+    local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
+    local base_px    = math.ceil(screen_min / 32)
     local preview_px = math.max(12, math.floor(base_px * scale))
 
     local custom_icon = G_reader_settings:readSetting("dogear_custom_icon")
@@ -325,41 +330,69 @@ function DogearManager:showSizeSlider(scale)
     }
 
     -- ── assemble dialog ────────────────────────────────────────────────
-    top_widget = CenterContainer:new{
-        dimen = Screen:getSize(),
-        FrameContainer:new{
-            background = Blitbuffer.COLOR_WHITE,
-            bordersize = Size.border.window,
-            radius     = Size.radius.window,
-            padding    = pad,
-            VerticalGroup:new{
-                align = "center",
-                -- Title
-                TextWidget:new{
-                    text = _("Adjust Bookmark Size"),
-                    face = Font:getFace("cfont", 22),
-                    bold = true,
-                },
-                VerticalSpan:new{ width = vspan_lg },
-                -- Preview label
-                TextWidget:new{
-                    text = _("Preview (tap \194\177 to resize):"),
-                    face = Font:getFace("cfont", 16),
-                },
-                VerticalSpan:new{ width = vspan_def },
-                -- Preview area (fixed height so dialog doesn't jump)
-                CenterContainer:new{
-                    dimen = Geom:new{ w = inner_w, h = preview_h },
-                    preview_widget,
-                },
-                VerticalSpan:new{ width = vspan_lg },
-                -- Scale controls
-                controls_row,
-                VerticalSpan:new{ width = vspan_lg },
-                -- Action buttons
-                actions_row,
+    local dialog_frame = FrameContainer:new{
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = Size.border.window,
+        radius     = Size.radius.window,
+        padding    = pad,
+        VerticalGroup:new{
+            align = "center",
+            -- Title
+            TextWidget:new{
+                text = _("Adjust Bookmark Size"),
+                face = Font:getFace("cfont", 22),
+                bold = true,
             },
+            VerticalSpan:new{ width = vspan_lg },
+            -- Preview label
+            TextWidget:new{
+                text = _("Preview (tap \194\177 to resize):"),
+                face = Font:getFace("cfont", 16),
+            },
+            VerticalSpan:new{ width = vspan_def },
+            -- Preview area (fixed height so dialog doesn't jump)
+            CenterContainer:new{
+                dimen = Geom:new{ w = inner_w, h = preview_h },
+                preview_widget,
+            },
+            VerticalSpan:new{ width = vspan_lg },
+            -- Scale controls
+            controls_row,
+            VerticalSpan:new{ width = vspan_lg },
+            -- Action buttons
+            actions_row,
         },
+    }
+
+    -- Wrap in InputContainer so KOReader dispatches gesture events to
+    -- our child buttons (bare CenterContainer never receives onGesture).
+    top_widget = InputContainer:new{
+        modal = true,
+        dimen = Screen:getSize(),
+    }
+    if Device:isTouchDevice() then
+        top_widget.ges_events.TapClose = {
+            GestureRange:new{
+                ges = "tap",
+                range = Geom:new{
+                    x = 0, y = 0,
+                    w = Screen:getWidth(),
+                    h = Screen:getHeight(),
+                },
+            },
+        }
+        function top_widget:onTapClose(arg, ges)
+            if ges and dialog_frame.dimen and not ges.pos:notIntersectWith(dialog_frame.dimen) then
+                -- Tap inside the dialog – let children handle it.
+                return false
+            end
+            UIManager:close(self)
+            return true
+        end
+    end
+    top_widget[1] = CenterContainer:new{
+        dimen = Screen:getSize(),
+        MovableContainer:new{ dialog_frame },
     }
 
     UIManager:show(top_widget)
@@ -401,29 +434,37 @@ function DogearManager:patchReaderDogear()
     end
 
     -- Patch init() so that any future ReaderDogear instance is scaled correctly.
-    -- FIX: after orig_init runs, dogear_size holds the unscaled computed size.
-    -- We multiply that directly and pass it to setupDogear() so the clamped
-    -- min/max calculation in setupDogear cannot suppress the scale.
+    -- After orig_init runs we scale dogear_min_size and dogear_max_size so that
+    -- the clamping inside onSetPageMargins uses the scaled bounds and doesn't
+    -- silently revert the dogear back to its original size.
     if scale_factor ~= 1 then
         local orig_init = ReaderDogear.init
         ReaderDogear.init = function(rd_self)
             orig_init(rd_self)
-            local base_size = rd_self.dogear_size
-            if base_size then
-                -- Pass the scaled size explicitly; setupDogear will use it
-                -- directly instead of re-deriving from screen / min-max.
-                rd_self:setupDogear(math.ceil(base_size * scale_factor))
+            -- Scale the clamp bounds so onSetPageMargins respects our factor.
+            if rd_self.dogear_min_size then
+                rd_self.dogear_min_size = math.ceil(rd_self.dogear_min_size * scale_factor)
             end
+            if rd_self.dogear_max_size then
+                rd_self.dogear_max_size = math.ceil(rd_self.dogear_max_size * scale_factor)
+            end
+            -- Rebuild at the new max (default) size.
+            rd_self:setupDogear(rd_self.dogear_max_size)
         end
     end
 
     -- Apply to the already-initialised instance (common case: plugin loads
     -- alongside an open document after ReaderDogear is already ready).
     if self.ui.dogear then
-        local base_size = self.ui.dogear.dogear_size
-        if base_size and scale_factor ~= 1 then
-            -- Scale the existing instance's dogear_size directly.
-            self.ui.dogear:setupDogear(math.ceil(base_size * scale_factor))
+        if scale_factor ~= 1 then
+            -- Scale the clamp bounds on the live instance too.
+            if self.ui.dogear.dogear_min_size then
+                self.ui.dogear.dogear_min_size = math.ceil(self.ui.dogear.dogear_min_size * scale_factor)
+            end
+            if self.ui.dogear.dogear_max_size then
+                self.ui.dogear.dogear_max_size = math.ceil(self.ui.dogear.dogear_max_size * scale_factor)
+            end
+            self.ui.dogear:setupDogear(self.ui.dogear.dogear_max_size)
         elseif custom_icon_path then
             -- No scale change but custom icon: force a rebuild so the
             -- patched setupDogear above swaps the icon.
