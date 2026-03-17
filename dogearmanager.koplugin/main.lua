@@ -605,15 +605,19 @@ function DogearManager:patchReaderDogear()
         local orig_resetLayout = ReaderDogear.resetLayout
 
         -- Offsets the dogear's on-screen position by the saved margins.
-        -- The dogear widget positions itself via its first child's dimen;
-        -- we shift x left by margin_right and y down by margin_top.
+        -- Right margin: shrink RightContainer.dimen.w so it right-aligns the icon
+        -- margin_right pixels inward from the screen edge.
+        -- Top margin: increase the VerticalSpan (top_pad) height and reset vgroup layout.
         local function applyMarginOffset(rd_self)
             local mt = G_reader_settings:readSetting("dogear_margin_top")   or 0
             local mr = G_reader_settings:readSetting("dogear_margin_right") or 0
-            if mt == 0 and mr == 0 then return end
             if rd_self[1] and rd_self[1].dimen then
-                rd_self[1].dimen.x = (rd_self[1].dimen.x or 0) - mr
-                rd_self[1].dimen.y = (rd_self[1].dimen.y or 0) + mt
+                rd_self[1].dimen.w = Screen:getWidth() - mr
+            end
+            if mt ~= 0 and rd_self.top_pad and rd_self.vgroup then
+                rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
+                rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
+                rd_self.vgroup:resetLayout()
             end
         end
 
@@ -653,6 +657,15 @@ function DogearManager:patchReaderDogear()
         if orig_resetLayout then
             ReaderDogear.resetLayout = function(rd_self, ...)
                 orig_resetLayout(rd_self, ...)
+                applyMarginOffset(rd_self)
+            end
+        end
+
+        -- updateDogearOffset (rolling docs) resets top_pad.width; re-apply top margin.
+        local orig_updateDogearOffset = ReaderDogear.updateDogearOffset
+        if orig_updateDogearOffset then
+            ReaderDogear.updateDogearOffset = function(rd_self, ...)
+                orig_updateDogearOffset(rd_self, ...)
                 applyMarginOffset(rd_self)
             end
         end
