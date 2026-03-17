@@ -112,10 +112,21 @@ end
 
 --- Forces the live dogear widget to rebuild with current settings.
 function DogearManager:applyDogearToLive()
-    if self.ui and self.ui.dogear then
+    if not self.ui then
+        logger.warn("DogearManager: applyDogearToLive – self.ui is nil")
+        return
+    end
+    if not self.ui.dogear then
+        logger.warn("DogearManager: applyDogearToLive – self.ui.dogear is nil")
+        return
+    end
+    local ok, err = pcall(function()
         self.ui.dogear.dogear_size = nil
         self.ui.dogear:setupDogear()
         self.ui.dogear:resetLayout()
+    end)
+    if not ok then
+        logger.err("DogearManager: applyDogearToLive failed:", err)
     end
 end
 
@@ -591,6 +602,9 @@ function DogearManager:patchReaderDogear()
                 local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
                 local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
 
+                logger.dbg("DogearManager: setupDogear patched – sf:", sf,
+                           "icon_path:", icon_path or "(none)")
+
                 if sf ~= 1 then
                     if new_dogear_size then
                         new_dogear_size = math.ceil(new_dogear_size * sf)
@@ -601,16 +615,25 @@ function DogearManager:patchReaderDogear()
 
                 orig_setupDogear(rd_self, new_dogear_size)
 
-                if icon_path and lfs.attributes(icon_path, "mode") == "file"
-                   and rd_self.icon and rd_self.vgroup then
-                    rd_self.icon:free()
-                    rd_self.icon = ImageWidget:new{
-                        file   = icon_path,
-                        width  = rd_self.dogear_size,
-                        height = rd_self.dogear_size,
-                        alpha  = true,
-                    }
-                    rd_self.vgroup[2] = rd_self.icon
+                if icon_path then
+                    local file_exists = lfs.attributes(icon_path, "mode") == "file"
+                    if not file_exists then
+                        logger.warn("DogearManager: icon file not found:", icon_path)
+                    elseif not rd_self.icon then
+                        logger.warn("DogearManager: rd_self.icon is nil after setupDogear")
+                    elseif not rd_self.vgroup then
+                        logger.warn("DogearManager: rd_self.vgroup is nil after setupDogear")
+                    else
+                        rd_self.icon:free()
+                        rd_self.icon = ImageWidget:new{
+                            file   = icon_path,
+                            width  = rd_self.dogear_size,
+                            height = rd_self.dogear_size,
+                            alpha  = true,
+                        }
+                        rd_self.vgroup[2] = rd_self.icon
+                        logger.dbg("DogearManager: custom icon applied successfully")
+                    end
                 end
 
                 applyMarginOffset(rd_self)
@@ -630,12 +653,16 @@ function DogearManager:patchReaderDogear()
                     applyMarginOffset(rd_self)
                 end
             end
+
+            logger.info("DogearManager: ReaderDogear patched successfully")
+        else
+            logger.dbg("DogearManager: ReaderDogear already patched, skipping")
         end
 
     end)
 
     if not ok then
-        logger.err("DogearManager: patchReaderDogear failed:", err)
+        logger.err("DogearManager: patchReaderDogear FAILED:", err)
     end
     self:applyDogearToLive()
 end
@@ -646,6 +673,11 @@ end
 
 function DogearManager:onReaderReady()
     self:patchReaderDogear()
+end
+
+function DogearManager:onDocumentRendered()
+    -- Re-apply after document rendering in case the dogear was reset.
+    self:applyDogearToLive()
 end
 
 function DogearManager:addToMainMenu(menu_items)
@@ -681,6 +713,56 @@ function DogearManager:addToMainMenu(menu_items)
                     UIManager:show(InfoMessage:new{
                         text    = _("Dogear reset to original defaults.\nRestart KOReader for full effect."),
                         timeout = 3,
+                    })
+                end,
+            },
+            {
+                text = _("Debug: Show Saved Settings"),
+                keep_menu_open = true,
+                callback = function()
+                    local icon = G_reader_settings:readSetting("dogear_custom_icon") or "(not set)"
+                    local icon_name = G_reader_settings:readSetting("dogear_custom_icon_name") or "(not set)"
+                    local sf = G_reader_settings:readSetting("dogear_scale_factor") or "(not set)"
+                    local mt = G_reader_settings:readSetting("dogear_margin_top") or "(not set)"
+                    local mr = G_reader_settings:readSetting("dogear_margin_right") or "(not set)"
+
+                    local has_dogear = (self.ui and self.ui.dogear) and "YES" or "NO"
+
+                    local ReaderDogear = require("apps/reader/modules/readerdogear")
+                    local is_patched = ReaderDogear._dm_patched and "YES" or "NO"
+
+                    local icon_exists = "(n/a)"
+                    local saved_icon = G_reader_settings:readSetting("dogear_custom_icon")
+                    if saved_icon then
+                        icon_exists = lfs.attributes(saved_icon, "mode") == "file" and "YES" or "NO"
+                    end
+
+                    UIManager:show(InfoMessage:new{
+                        text = "Dogear Manager Debug\n\n"
+                            .. "Icon path: " .. tostring(icon) .. "\n"
+                            .. "Icon name: " .. tostring(icon_name) .. "\n"
+                            .. "Icon file exists: " .. icon_exists .. "\n"
+                            .. "Scale factor: " .. tostring(sf) .. "\n"
+                            .. "Margin top: " .. tostring(mt) .. "\n"
+                            .. "Margin right: " .. tostring(mr) .. "\n\n"
+                            .. "Dogear widget present: " .. has_dogear .. "\n"
+                            .. "ReaderDogear patched: " .. is_patched,
+                    })
+                end,
+            },
+            {
+                text = _("Force Re-apply Now"),
+                keep_menu_open = false,
+                callback = function()
+                    -- Reset the patch flag to force re-patching.
+                    local patch_ok, _ = pcall(function()
+                        local ReaderDogear = require("apps/reader/modules/readerdogear")
+                        ReaderDogear._dm_patched = nil
+                    end)
+                    self:patchReaderDogear()
+                    UIManager:show(InfoMessage:new{
+                        text = _("Dogear settings re-applied."),
+                        timeout = 2,
                     })
                 end,
             },
