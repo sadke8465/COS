@@ -663,6 +663,9 @@ end
 
 function DogearManager:init()
     self.ui.menu:registerToMainMenu(self)
+end
+
+function DogearManager:onReaderReady()
     self:patchReaderDogear()
 end
 
