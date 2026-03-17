@@ -268,12 +268,12 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     end
 
     -- ── layout helpers ─────────────────────────────────────────────────
-    local dialog_w  = math.floor(Screen:getWidth() * 0.82)
-    local pad       = Size.padding.large
+    local dialog_w  = math.floor(Screen:getWidth() * 0.80)
+    local pad       = Size.padding.default
     local inner_w   = dialog_w - pad * 2
     local hspan     = Size.span.horizontal_default
-    local vspan_lg  = Size.span.vertical_large
-    local vspan_def = Size.span.vertical_default
+    local vspan_lg  = Size.span.vertical_default
+    local vspan_def = math.floor(Size.span.vertical_default / 2)
 
     -- ── corner preview ─────────────────────────────────────────────────
     -- Renders a scaled representation of the top-right page corner so the
@@ -315,14 +315,16 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
     }
 
-    -- ── scale controls row: −0.5  −  [value]  +  +0.5 ─────────────────
-    local step_btn_w  = math.floor(inner_w / 6)
-    local value_box_w = math.floor(inner_w / 4)
+    -- ── scale controls row: −  [value]  + ─────────────────────────────
+    -- Single tap: ±0.1  |  The ± 0.5 step buttons are on the outer ends.
+    local btn_h       = Screen:scaleBySize(36)
+    local step_btn_w  = math.floor(inner_w / 5)
+    local value_box_w = inner_w - step_btn_w * 4 - hspan * 4
 
     local scale_row = HorizontalGroup:new{
         align = "center",
         Button:new{
-            text     = "-0.5",
+            text     = "−.5",
             width    = step_btn_w,
             callback = function()
                 rebuild(math.max(0.5, math.floor((scale - 0.5) * 10 + 0.5) / 10),
@@ -331,7 +333,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
         HorizontalSpan:new{ width = hspan },
         Button:new{
-            text     = "-",
+            text     = "−",
             width    = step_btn_w,
             callback = function()
                 rebuild(math.max(0.5, math.floor((scale - 0.1) * 10 + 0.5) / 10),
@@ -340,10 +342,10 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
         HorizontalSpan:new{ width = hspan },
         CenterContainer:new{
-            dimen = Geom:new{ w = value_box_w, h = Screen:scaleBySize(32) },
+            dimen = Geom:new{ w = value_box_w, h = btn_h },
             TextWidget:new{
-                text = string.format("%.1fx", scale),
-                face = Font:getFace("cfont", 22),
+                text = string.format("%.1f×", scale),
+                face = Font:getFace("cfont", 20),
                 bold = true,
             },
         },
@@ -358,7 +360,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
         HorizontalSpan:new{ width = hspan },
         Button:new{
-            text     = "+0.5",
+            text     = "+.5",
             width    = step_btn_w,
             callback = function()
                 rebuild(math.min(4.0, math.floor((scale + 0.5) * 10 + 0.5) / 10),
@@ -369,36 +371,34 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
 
     -- ── margin control rows ─────────────────────────────────────────────
     -- Each row: [Label]  [−]  [value px]  [+]
-    local label_w = math.floor(inner_w * 0.30)
-    local mbtn_w  = math.floor(inner_w / 7)
-    local mval_w  = math.floor(inner_w * 0.22)
+    local label_w = math.floor(inner_w * 0.18)
+    local mbtn_w  = math.floor(inner_w / 6)
+    local mval_w  = inner_w - label_w - mbtn_w * 2 - hspan * 3
 
     local function marginRow(label, value, on_dec, on_inc)
         return HorizontalGroup:new{
             align = "center",
             CenterContainer:new{
-                dimen = Geom:new{ w = label_w, h = Screen:scaleBySize(32) },
+                dimen = Geom:new{ w = label_w, h = btn_h },
                 TextWidget:new{
                     text = label,
-                    face = Font:getFace("cfont", 16),
+                    face = Font:getFace("cfont", 15),
                 },
             },
             HorizontalSpan:new{ width = hspan },
             Button:new{
-                text     = "-",
+                text     = "−",
                 width    = mbtn_w,
                 callback = on_dec,
             },
-            HorizontalSpan:new{ width = hspan },
             CenterContainer:new{
-                dimen = Geom:new{ w = mval_w, h = Screen:scaleBySize(32) },
+                dimen = Geom:new{ w = mval_w, h = btn_h },
                 TextWidget:new{
                     text = value .. "px",
                     face = Font:getFace("cfont", 18),
                     bold = true,
                 },
             },
-            HorizontalSpan:new{ width = hspan },
             Button:new{
                 text     = "+",
                 width    = mbtn_w,
@@ -408,7 +408,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     end
 
     local top_margin_row = marginRow(
-        _("Top:"),
+        _("Top"),
         margin_top,
         function()
             rebuild(scale, math.max(0, margin_top - margin_step), margin_right, icon_idx)
@@ -419,7 +419,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     )
 
     local right_margin_row = marginRow(
-        _("Right:"),
+        _("Right"),
         margin_right,
         function()
             rebuild(scale, margin_top, math.max(0, margin_right - margin_step), icon_idx)
@@ -432,7 +432,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     -- ── icon selector row: ◀  [icon name]  ▶ ──────────────────────────
     local icon_btn_w  = step_btn_w
     local icon_name_w = inner_w - icon_btn_w * 2 - hspan * 2
-    local icon_display = selected_icon_name or _("Default")
+    local icon_display = selected_icon_name or _("default")
 
     local icon_row = HorizontalGroup:new{
         align = "center",
@@ -447,10 +447,10 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
         HorizontalSpan:new{ width = hspan },
         CenterContainer:new{
-            dimen = Geom:new{ w = icon_name_w, h = Screen:scaleBySize(32) },
+            dimen = Geom:new{ w = icon_name_w, h = btn_h },
             TextWidget:new{
                 text      = icon_display,
-                face      = Font:getFace("cfont", 16),
+                face      = Font:getFace("cfont", 15),
                 max_width = icon_name_w,
             },
         },
@@ -520,42 +520,21 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
             align = "center",
             -- Title
             TextWidget:new{
-                text = _("Adjust Bookmark Size & Margins"),
-                face = Font:getFace("cfont", 22),
+                text = _("Bookmark Size & Margins"),
+                face = Font:getFace("cfont", 18),
                 bold = true,
             },
             VerticalSpan:new{ width = vspan_lg },
-            -- Corner preview label
-            TextWidget:new{
-                text = _("Corner preview:"),
-                face = Font:getFace("cfont", 16),
-            },
-            VerticalSpan:new{ width = vspan_def },
             -- Corner preview: shows icon size + margin placement
             corner_preview,
             VerticalSpan:new{ width = vspan_lg },
             -- Size controls
-            TextWidget:new{
-                text = _("Size (tap \194\177 to resize):"),
-                face = Font:getFace("cfont", 16),
-            },
-            VerticalSpan:new{ width = vspan_def },
             scale_row,
             VerticalSpan:new{ width = vspan_lg },
             -- Icon selector
-            TextWidget:new{
-                text = _("Icon:"),
-                face = Font:getFace("cfont", 16),
-            },
-            VerticalSpan:new{ width = vspan_def },
             icon_row,
             VerticalSpan:new{ width = vspan_lg },
             -- Margin controls
-            TextWidget:new{
-                text = _("Margins:"),
-                face = Font:getFace("cfont", 16),
-            },
-            VerticalSpan:new{ width = vspan_def },
             top_margin_row,
             VerticalSpan:new{ width = vspan_def },
             right_margin_row,
