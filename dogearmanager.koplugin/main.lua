@@ -17,10 +17,10 @@ local CenterContainer = require("ui/widget/container/centercontainer")
 local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
+local Event = require("ui/event")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
-local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
@@ -106,19 +106,26 @@ function DogearManager:promptRestart()
     })
 end
 
+--- Forces the live dogear widget to rebuild with current settings.
+function DogearManager:applyDogearToLive()
+    if self.ui and self.ui.dogear then
+        self.ui.dogear.dogear_size = nil
+        self.ui.dogear:setupDogear()
+        self.ui.dogear:resetLayout()
+    end
+end
+
 --- Applies the selected design by saving it to settings.
 function DogearManager:applyDesign(filename, full_path)
     G_reader_settings:saveSetting("dogear_custom_icon", full_path)
     G_reader_settings:saveSetting("dogear_custom_icon_name", filename)
 
+    self:applyDogearToLive()
+
     UIManager:show(InfoMessage:new{
         text = _("Bookmark design set to: ") .. filename,
         timeout = 2,
     })
-
-    UIManager:scheduleIn(2.5, function()
-        self:promptRestart()
-    end)
 end
 
 --- Shows the design selection submenu.
@@ -153,13 +160,11 @@ function DogearManager:showDesignMenu()
         callback = function()
             G_reader_settings:delSetting("dogear_custom_icon")
             G_reader_settings:delSetting("dogear_custom_icon_name")
+            self:applyDogearToLive()
             UIManager:show(InfoMessage:new{
                 text = _("Bookmark design reset to default."),
                 timeout = 2,
             })
-            UIManager:scheduleIn(2.5, function()
-                self:promptRestart()
-            end)
         end,
     })
 
@@ -193,10 +198,10 @@ function DogearManager:showSizeSlider(scale)
     scale = math.max(0.5, math.min(4.0, scale))
 
     -- Base preview size – matches the real dogear_max_size formula from
-    -- ReaderDogear: math.ceil(min(W, H) / 32).
+    -- ReaderDogear: math.ceil(min(W, H) / 32), then scaled.
     local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
     local base_px    = math.ceil(screen_min / 32)
-    local preview_px = math.max(12, math.floor(base_px * scale))
+    local preview_px = math.max(12, math.ceil(base_px * scale))
 
     local custom_icon = G_reader_settings:readSetting("dogear_custom_icon")
 
@@ -303,13 +308,11 @@ function DogearManager:showSizeSlider(scale)
             callback = function()
                 G_reader_settings:delSetting("dogear_scale_factor")
                 UIManager:close(top_widget)
+                self:applyDogearToLive()
                 UIManager:show(InfoMessage:new{
                     text    = _("Bookmark size reset to default."),
                     timeout = 2,
                 })
-                UIManager:scheduleIn(2.5, function()
-                    self:promptRestart()
-                end)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -318,13 +321,11 @@ function DogearManager:showSizeSlider(scale)
             callback = function()
                 G_reader_settings:saveSetting("dogear_scale_factor", scale)
                 UIManager:close(top_widget)
+                self:applyDogearToLive()
                 UIManager:show(InfoMessage:new{
                     text    = _("Bookmark size set to ") .. string.format("%.1f", scale) .. "x",
                     timeout = 2,
                 })
-                UIManager:scheduleIn(2.5, function()
-                    self:promptRestart()
-                end)
             end,
         },
     }
@@ -364,66 +365,71 @@ function DogearManager:showSizeSlider(scale)
         },
     }
 
-    -- Wrap in InputContainer so KOReader dispatches gesture events to
-    -- our child buttons (bare CenterContainer never receives onGesture).
+    -- Wrap in InputContainer so KOReader dispatches gesture events.
+    -- Override onGesture to forward the raw gesture down the widget tree
+    -- via handleEvent; this lets child Button widgets receive the tap
+    -- through their own onGesture → TapSelect path.
     top_widget = InputContainer:new{
         modal = true,
         dimen = Screen:getSize(),
     }
-    if Device:isTouchDevice() then
-        top_widget.ges_events.TapClose = {
-            GestureRange:new{
-                ges = "tap",
-                range = Geom:new{
-                    x = 0, y = 0,
-                    w = Screen:getWidth(),
-                    h = Screen:getHeight(),
-                },
-            },
-        }
-        function top_widget:onTapClose(arg, ges)
-            if ges and dialog_frame.dimen and not ges.pos:notIntersectWith(dialog_frame.dimen) then
-                -- Tap inside the dialog – let children handle it.
-                return false
-            end
-            UIManager:close(self)
-            return true
-        end
-    end
     top_widget[1] = CenterContainer:new{
         dimen = Screen:getSize(),
         MovableContainer:new{ dialog_frame },
     }
 
+    if Device:isTouchDevice() then
+        function top_widget:onGesture(ev)
+            -- Forward the raw gesture to children so Buttons can match
+            -- their TapSelect gesture and fire callbacks.
+            if self[1] and self[1]:handleEvent(Event:new("Gesture", ev)) then
+                return true
+            end
+            -- Tap outside the dialog dismisses it.
+            if ev.ges == "tap" and dialog_frame.dimen then
+                if ev.pos:notIntersectWith(dialog_frame.dimen) then
+                    UIManager:close(self)
+                    return true
+                end
+            end
+        end
+    end
+
     UIManager:show(top_widget)
 end
 
 --- Patches KOReader's ReaderDogear widget to apply saved scale and icon settings.
--- ReaderDogear computes its size purely from screen dimensions and never reads
--- dogear_scale_factor or dogear_custom_icon on its own, so we monkey-patch its
--- init() and setupDogear() methods here to inject our values.
+-- We monkey-patch setupDogear() once so that every call reads the current
+-- dogear_scale_factor and dogear_custom_icon settings and applies them.
+-- A guard flag on the class prevents double-patching when the plugin loads
+-- in both FileManager and ReaderUI contexts.
 function DogearManager:patchReaderDogear()
-    local scale_factor     = G_reader_settings:readSetting("dogear_scale_factor") or 1
-    local custom_icon_path = G_reader_settings:readSetting("dogear_custom_icon")
-
-    -- Nothing to do if both settings are at their defaults.
-    if scale_factor == 1 and not custom_icon_path then
-        return
-    end
-
     local ReaderDogear = require("apps/reader/modules/readerdogear")
 
-    -- Patch setupDogear() to swap the built-in IconWidget for our custom image.
-    -- This runs for every future setupDogear call (including the one triggered
-    -- by the patched init below).
-    if custom_icon_path then
+    if not ReaderDogear._dm_patched then
+        ReaderDogear._dm_patched = true
         local orig_setupDogear = ReaderDogear.setupDogear
         ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
+            local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
+            local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
+
+            -- Scale the requested size (or the default max).
+            if sf ~= 1 then
+                if new_dogear_size then
+                    new_dogear_size = math.ceil(new_dogear_size * sf)
+                else
+                    new_dogear_size = math.ceil(rd_self.dogear_max_size * sf)
+                end
+            end
+
             orig_setupDogear(rd_self, new_dogear_size)
-            if rd_self.icon and rd_self.vgroup then
+
+            -- Swap in custom icon if configured.
+            if icon_path and lfs.attributes(icon_path, "mode") == "file"
+               and rd_self.icon and rd_self.vgroup then
                 rd_self.icon:free()
                 rd_self.icon = ImageWidget:new{
-                    file   = custom_icon_path,
+                    file   = icon_path,
                     width  = rd_self.dogear_size,
                     height = rd_self.dogear_size,
                     alpha  = true,
@@ -433,46 +439,8 @@ function DogearManager:patchReaderDogear()
         end
     end
 
-    -- Patch init() so that any future ReaderDogear instance is scaled correctly.
-    -- After orig_init runs we scale dogear_min_size and dogear_max_size so that
-    -- the clamping inside onSetPageMargins uses the scaled bounds and doesn't
-    -- silently revert the dogear back to its original size.
-    if scale_factor ~= 1 then
-        local orig_init = ReaderDogear.init
-        ReaderDogear.init = function(rd_self)
-            orig_init(rd_self)
-            -- Scale the clamp bounds so onSetPageMargins respects our factor.
-            if rd_self.dogear_min_size then
-                rd_self.dogear_min_size = math.ceil(rd_self.dogear_min_size * scale_factor)
-            end
-            if rd_self.dogear_max_size then
-                rd_self.dogear_max_size = math.ceil(rd_self.dogear_max_size * scale_factor)
-            end
-            -- Rebuild at the new max (default) size.
-            rd_self:setupDogear(rd_self.dogear_max_size)
-        end
-    end
-
-    -- Apply to the already-initialised instance (common case: plugin loads
-    -- alongside an open document after ReaderDogear is already ready).
-    if self.ui.dogear then
-        if scale_factor ~= 1 then
-            -- Scale the clamp bounds on the live instance too.
-            if self.ui.dogear.dogear_min_size then
-                self.ui.dogear.dogear_min_size = math.ceil(self.ui.dogear.dogear_min_size * scale_factor)
-            end
-            if self.ui.dogear.dogear_max_size then
-                self.ui.dogear.dogear_max_size = math.ceil(self.ui.dogear.dogear_max_size * scale_factor)
-            end
-            self.ui.dogear:setupDogear(self.ui.dogear.dogear_max_size)
-        elseif custom_icon_path then
-            -- No scale change but custom icon: force a rebuild so the
-            -- patched setupDogear above swaps the icon.
-            self.ui.dogear.dogear_size = nil
-            self.ui.dogear:setupDogear()
-        end
-        self.ui.dogear:resetLayout()
-    end
+    -- Apply to the already-initialised instance.
+    self:applyDogearToLive()
 end
 
 function DogearManager:init()
@@ -506,13 +474,11 @@ function DogearManager:addToMainMenu(menu_items)
                     G_reader_settings:delSetting("dogear_custom_icon")
                     G_reader_settings:delSetting("dogear_custom_icon_name")
                     G_reader_settings:delSetting("dogear_scale_factor")
+                    self:applyDogearToLive()
                     UIManager:show(InfoMessage:new{
                         text    = _("Dogear reset to original defaults."),
                         timeout = 2,
                     })
-                    UIManager:scheduleIn(2.5, function()
-                        self:promptRestart()
-                    end)
                 end,
             },
         },
