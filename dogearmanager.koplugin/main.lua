@@ -177,58 +177,74 @@ function DogearManager:showDesignMenu()
     UIManager:show(design_menu)
 end
 
---- Shows the size adjustment dialog with a slider and live icon preview.
--- Builds (or rebuilds) the dialog at the given scale value.
--- @param scale number  current scale factor (default: read from settings)
-function DogearManager:showSizeSlider(scale)
+--- Shows the size/margin adjustment dialog with a corner preview.
+-- Builds (or rebuilds) the dialog at the given scale and margin values.
+-- @param scale        number  current scale factor (default: read from settings)
+-- @param margin_top   number  top margin in pixels (default: read from settings)
+-- @param margin_right number  right margin in pixels (default: read from settings)
+function DogearManager:showSizeSlider(scale, margin_top, margin_right)
     local Screen = Device.screen
 
-    -- Read saved scale if not provided; clamp and round to nearest 0.1.
+    -- Read saved settings if not provided.
     if not scale then
         scale = G_reader_settings:readSetting("dogear_scale_factor") or 1
     end
+    if not margin_top then
+        margin_top = G_reader_settings:readSetting("dogear_margin_top") or 0
+    end
+    if not margin_right then
+        margin_right = G_reader_settings:readSetting("dogear_margin_right") or 0
+    end
+
+    -- Clamp scale.
     scale = math.floor(scale * 10 + 0.5) / 10
     scale = math.max(0.5, math.min(4.0, scale))
 
     -- Base preview size – matches the real dogear_max_size formula from
     -- ReaderDogear: math.ceil(min(W, H) / 32), then scaled.
-    local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
-    local base_px    = math.ceil(screen_min / 32)
-    local preview_px = math.max(12, math.ceil(base_px * scale))
+    local screen_min  = math.min(Screen:getWidth(), Screen:getHeight())
+    local base_px     = math.ceil(screen_min / 32)
+    local preview_px  = math.max(12, math.ceil(base_px * scale))
+
+    -- Margin step and maximum.
+    local margin_step = math.max(2, math.ceil(base_px / 4))
+    local margin_max  = math.floor(screen_min / 4)
+
+    -- Clamp margins.
+    margin_top   = math.max(0, math.min(margin_max, margin_top))
+    margin_right = math.max(0, math.min(margin_max, margin_right))
 
     local custom_icon = G_reader_settings:readSetting("dogear_custom_icon")
 
-    -- Build the icon preview widget.
-    local preview_widget
-    if custom_icon and lfs.attributes(custom_icon, "mode") == "file" then
-        preview_widget = ImageWidget:new{
-            file   = custom_icon,
-            width  = preview_px,
-            height = preview_px,
-            alpha  = true,
-        }
-    else
-        -- Solid black square as a stand-in for the dogear corner.
-        preview_widget = FrameContainer:new{
-            width      = preview_px,
-            height     = preview_px,
-            background = Blitbuffer.COLOR_BLACK,
-            bordersize = 0,
-            padding    = 0,
-        }
+    -- Returns a fresh icon widget at the given pixel size.
+    local function makeIconWidget(sz)
+        if custom_icon and lfs.attributes(custom_icon, "mode") == "file" then
+            return ImageWidget:new{
+                file   = custom_icon,
+                width  = sz,
+                height = sz,
+                alpha  = true,
+            }
+        else
+            -- Solid black square as a stand-in for the dogear corner.
+            return FrameContainer:new{
+                width      = sz,
+                height     = sz,
+                background = Blitbuffer.COLOR_BLACK,
+                bordersize = 0,
+                padding    = 0,
+            }
+        end
     end
 
     -- top_widget is the root widget passed to UIManager:show / close.
-    -- Declare it here so button closures can reference it.
     local top_widget
 
-    -- Close the dialog and rebuild at a new scale (live-update pattern).
-    -- Defer showSizeSlider to the next event-loop tick so UIManager can
-    -- finish processing the current gesture before the new dialog appears.
-    local function rebuild(new_scale)
+    -- Close and rebuild at new values (live-update pattern).
+    local function rebuild(ns, nmt, nmr)
         UIManager:close(top_widget)
         UIManager:scheduleIn(0, function()
-            self:showSizeSlider(new_scale)
+            self:showSizeSlider(ns, nmt, nmr)
         end)
     end
 
@@ -236,23 +252,62 @@ function DogearManager:showSizeSlider(scale)
     local dialog_w  = math.floor(Screen:getWidth() * 0.82)
     local pad       = Size.padding.large
     local inner_w   = dialog_w - pad * 2
-    -- Fixed preview area height keeps the dialog from jumping in size.
-    local preview_h = base_px * 4 + pad * 2
     local hspan     = Size.span.horizontal_default
     local vspan_lg  = Size.span.vertical_large
     local vspan_def = Size.span.vertical_default
 
-    -- ── controls row: −0.5  −  [value]  +  +0.5 ───────────────────────
+    -- ── corner preview ─────────────────────────────────────────────────
+    -- Renders a scaled representation of the top-right page corner so the
+    -- user can see both icon size and margin placement at once.
+    --
+    -- The preview area represents the top (screen_h / 6) rows and full
+    -- screen width; margins and icon size are scaled proportionally.
+    local corner_h = base_px * 5 + pad * 2
+    local corner_w = inner_w
+
+    local repr_h = Screen:getHeight() / 6   -- real screen rows shown
+    local repr_w = Screen:getWidth()         -- real screen cols shown
+
+    local prev_mt   = math.floor(margin_top   * corner_h / repr_h)
+    local prev_mr   = math.floor(margin_right * corner_w / repr_w)
+    local prev_icon = math.max(8, math.floor(preview_px * corner_h / repr_h))
+
+    -- Keep icon fully inside the preview area.
+    prev_mt   = math.min(prev_mt,   corner_h - prev_icon - 2)
+    prev_mr   = math.min(prev_mr,   corner_w - prev_icon - 2)
+    local left_fill = math.max(0, corner_w - prev_mr - prev_icon)
+
+    local corner_preview = FrameContainer:new{
+        width      = corner_w,
+        height     = corner_h,
+        background = Blitbuffer.COLOR_LIGHT_GRAY,
+        bordersize = Size.border.default,
+        padding    = 0,
+        VerticalGroup:new{
+            align = "left",
+            -- Push icon down by top margin.
+            VerticalSpan:new{ width = math.max(0, prev_mt) },
+            HorizontalGroup:new{
+                align = "top",
+                -- Push icon left from the right edge by right margin.
+                HorizontalSpan:new{ width = left_fill },
+                makeIconWidget(prev_icon),
+            },
+        },
+    }
+
+    -- ── scale controls row: −0.5  −  [value]  +  +0.5 ─────────────────
     local step_btn_w  = math.floor(inner_w / 6)
     local value_box_w = math.floor(inner_w / 4)
 
-    local controls_row = HorizontalGroup:new{
+    local scale_row = HorizontalGroup:new{
         align = "center",
         Button:new{
             text     = "-0.5",
             width    = step_btn_w,
             callback = function()
-                rebuild(math.max(0.5, math.floor((scale - 0.5) * 10 + 0.5) / 10))
+                rebuild(math.max(0.5, math.floor((scale - 0.5) * 10 + 0.5) / 10),
+                        margin_top, margin_right)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -260,7 +315,8 @@ function DogearManager:showSizeSlider(scale)
             text     = "-",
             width    = step_btn_w,
             callback = function()
-                rebuild(math.max(0.5, math.floor((scale - 0.1) * 10 + 0.5) / 10))
+                rebuild(math.max(0.5, math.floor((scale - 0.1) * 10 + 0.5) / 10),
+                        margin_top, margin_right)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -277,7 +333,8 @@ function DogearManager:showSizeSlider(scale)
             text     = "+",
             width    = step_btn_w,
             callback = function()
-                rebuild(math.min(4.0, math.floor((scale + 0.1) * 10 + 0.5) / 10))
+                rebuild(math.min(4.0, math.floor((scale + 0.1) * 10 + 0.5) / 10),
+                        margin_top, margin_right)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -285,10 +342,73 @@ function DogearManager:showSizeSlider(scale)
             text     = "+0.5",
             width    = step_btn_w,
             callback = function()
-                rebuild(math.min(4.0, math.floor((scale + 0.5) * 10 + 0.5) / 10))
+                rebuild(math.min(4.0, math.floor((scale + 0.5) * 10 + 0.5) / 10),
+                        margin_top, margin_right)
             end,
         },
     }
+
+    -- ── margin control rows ─────────────────────────────────────────────
+    -- Each row: [Label]  [−]  [value px]  [+]
+    local label_w = math.floor(inner_w * 0.30)
+    local mbtn_w  = math.floor(inner_w / 7)
+    local mval_w  = math.floor(inner_w * 0.22)
+
+    local function marginRow(label, value, on_dec, on_inc)
+        return HorizontalGroup:new{
+            align = "center",
+            CenterContainer:new{
+                dimen = Geom:new{ w = label_w, h = Screen:scaleBySize(32) },
+                TextWidget:new{
+                    text = label,
+                    face = Font:getFace("cfont", 16),
+                },
+            },
+            HorizontalSpan:new{ width = hspan },
+            Button:new{
+                text     = "-",
+                width    = mbtn_w,
+                callback = on_dec,
+            },
+            HorizontalSpan:new{ width = hspan },
+            CenterContainer:new{
+                dimen = Geom:new{ w = mval_w, h = Screen:scaleBySize(32) },
+                TextWidget:new{
+                    text = value .. "px",
+                    face = Font:getFace("cfont", 18),
+                    bold = true,
+                },
+            },
+            HorizontalSpan:new{ width = hspan },
+            Button:new{
+                text     = "+",
+                width    = mbtn_w,
+                callback = on_inc,
+            },
+        }
+    end
+
+    local top_margin_row = marginRow(
+        _("Top:"),
+        margin_top,
+        function()
+            rebuild(scale, math.max(0, margin_top - margin_step), margin_right)
+        end,
+        function()
+            rebuild(scale, math.min(margin_max, margin_top + margin_step), margin_right)
+        end
+    )
+
+    local right_margin_row = marginRow(
+        _("Right:"),
+        margin_right,
+        function()
+            rebuild(scale, margin_top, math.max(0, margin_right - margin_step))
+        end,
+        function()
+            rebuild(scale, margin_top, math.min(margin_max, margin_right + margin_step))
+        end
+    )
 
     -- ── action row: Cancel  Reset  Apply ───────────────────────────────
     local actions_row = HorizontalGroup:new{
@@ -304,6 +424,8 @@ function DogearManager:showSizeSlider(scale)
             text     = _("Reset"),
             callback = function()
                 G_reader_settings:delSetting("dogear_scale_factor")
+                G_reader_settings:delSetting("dogear_margin_top")
+                G_reader_settings:delSetting("dogear_margin_right")
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -314,6 +436,8 @@ function DogearManager:showSizeSlider(scale)
             text     = _("Apply"),
             callback = function()
                 G_reader_settings:saveSetting("dogear_scale_factor", scale)
+                G_reader_settings:saveSetting("dogear_margin_top", margin_top)
+                G_reader_settings:saveSetting("dogear_margin_right", margin_right)
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -331,25 +455,37 @@ function DogearManager:showSizeSlider(scale)
             align = "center",
             -- Title
             TextWidget:new{
-                text = _("Adjust Bookmark Size"),
+                text = _("Adjust Bookmark Size & Margins"),
                 face = Font:getFace("cfont", 22),
                 bold = true,
             },
             VerticalSpan:new{ width = vspan_lg },
-            -- Preview label
+            -- Corner preview label
             TextWidget:new{
-                text = _("Preview (tap \194\177 to resize):"),
+                text = _("Corner preview:"),
                 face = Font:getFace("cfont", 16),
             },
             VerticalSpan:new{ width = vspan_def },
-            -- Preview area (fixed height so dialog doesn't jump)
-            CenterContainer:new{
-                dimen = Geom:new{ w = inner_w, h = preview_h },
-                preview_widget,
-            },
+            -- Corner preview: shows icon size + margin placement
+            corner_preview,
             VerticalSpan:new{ width = vspan_lg },
-            -- Scale controls
-            controls_row,
+            -- Size controls
+            TextWidget:new{
+                text = _("Size (tap \194\177 to resize):"),
+                face = Font:getFace("cfont", 16),
+            },
+            VerticalSpan:new{ width = vspan_def },
+            scale_row,
+            VerticalSpan:new{ width = vspan_lg },
+            -- Margin controls
+            TextWidget:new{
+                text = _("Margins:"),
+                face = Font:getFace("cfont", 16),
+            },
+            VerticalSpan:new{ width = vspan_def },
+            top_margin_row,
+            VerticalSpan:new{ width = vspan_def },
+            right_margin_row,
             VerticalSpan:new{ width = vspan_lg },
             -- Action buttons
             actions_row,
@@ -357,9 +493,6 @@ function DogearManager:showSizeSlider(scale)
     }
 
     -- Wrap in InputContainer so KOReader dispatches gesture events.
-    -- Override onGesture to forward the raw gesture down the widget tree
-    -- via handleEvent; this lets child Button widgets receive the tap
-    -- through their own onGesture → TapSelect path.
     top_widget = InputContainer:new{
         modal = true,
         dimen = Screen:getSize(),
@@ -371,12 +504,9 @@ function DogearManager:showSizeSlider(scale)
 
     if Device:isTouchDevice() then
         function top_widget:onGesture(ev)
-            -- Forward the raw gesture to children so Buttons can match
-            -- their TapSelect gesture and fire callbacks.
             if self[1] and self[1]:handleEvent(Event:new("Gesture", ev)) then
                 return true
             end
-            -- Tap outside the dialog dismisses it.
             if ev.ges == "tap" and dialog_frame.dimen then
                 if ev.pos:notIntersectWith(dialog_frame.dimen) then
                     UIManager:close(self)
@@ -389,17 +519,31 @@ function DogearManager:showSizeSlider(scale)
     UIManager:show(top_widget)
 end
 
---- Patches KOReader's ReaderDogear widget to apply saved scale and icon settings.
--- We monkey-patch setupDogear() once so that every call reads the current
--- dogear_scale_factor and dogear_custom_icon settings and applies them.
--- A guard flag on the class prevents double-patching when the plugin loads
--- in both FileManager and ReaderUI contexts.
+--- Patches KOReader's ReaderDogear widget to apply saved scale, icon, and
+-- margin settings. We monkey-patch setupDogear() and resetLayout() once so
+-- that every call reads the current settings and applies them.
+-- A guard flag on the class prevents double-patching.
 function DogearManager:patchReaderDogear()
     local ReaderDogear = require("apps/reader/modules/readerdogear")
 
     if not ReaderDogear._dm_patched then
         ReaderDogear._dm_patched = true
         local orig_setupDogear = ReaderDogear.setupDogear
+        local orig_resetLayout = ReaderDogear.resetLayout
+
+        -- Offsets the dogear's on-screen position by the saved margins.
+        -- The dogear widget positions itself via its first child's dimen;
+        -- we shift x left by margin_right and y down by margin_top.
+        local function applyMarginOffset(rd_self)
+            local mt = G_reader_settings:readSetting("dogear_margin_top")   or 0
+            local mr = G_reader_settings:readSetting("dogear_margin_right") or 0
+            if mt == 0 and mr == 0 then return end
+            if rd_self[1] and rd_self[1].dimen then
+                rd_self[1].dimen.x = (rd_self[1].dimen.x or 0) - mr
+                rd_self[1].dimen.y = (rd_self[1].dimen.y or 0) + mt
+            end
+        end
+
         ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
             local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
             local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
@@ -427,6 +571,17 @@ function DogearManager:patchReaderDogear()
                 }
                 rd_self.vgroup[2] = rd_self.icon
             end
+
+            applyMarginOffset(rd_self)
+        end
+
+        -- resetLayout repositions the dogear after page turns / layout
+        -- changes, so we re-apply margins there too.
+        if orig_resetLayout then
+            ReaderDogear.resetLayout = function(rd_self, ...)
+                orig_resetLayout(rd_self, ...)
+                applyMarginOffset(rd_self)
+            end
         end
     end
 
@@ -452,7 +607,7 @@ function DogearManager:addToMainMenu(menu_items)
                 end,
             },
             {
-                text = _("Adjust Bookmark Size"),
+                text = _("Adjust Bookmark Size & Margins"),
                 keep_menu_open = false,
                 callback = function()
                     self:showSizeSlider()
@@ -465,6 +620,8 @@ function DogearManager:addToMainMenu(menu_items)
                     G_reader_settings:delSetting("dogear_custom_icon")
                     G_reader_settings:delSetting("dogear_custom_icon_name")
                     G_reader_settings:delSetting("dogear_scale_factor")
+                    G_reader_settings:delSetting("dogear_margin_top")
+                    G_reader_settings:delSetting("dogear_margin_right")
                     self:applyDogearToLive()
                     UIManager:show(InfoMessage:new{
                         text    = _("Dogear reset to original defaults."),
