@@ -123,6 +123,7 @@ end
 function DogearManager:applyDesign(filename, full_path)
     G_reader_settings:saveSetting("dogear_custom_icon", full_path)
     G_reader_settings:saveSetting("dogear_custom_icon_name", filename)
+    G_reader_settings:flush()
 
     self:applyDogearToLive()
     self:promptRestart()
@@ -160,6 +161,7 @@ function DogearManager:showDesignMenu()
         callback = function()
             G_reader_settings:delSetting("dogear_custom_icon")
             G_reader_settings:delSetting("dogear_custom_icon_name")
+            G_reader_settings:flush()
             self:applyDogearToLive()
             self:promptRestart()
         end,
@@ -477,6 +479,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
                 G_reader_settings:delSetting("dogear_margin_right")
                 G_reader_settings:delSetting("dogear_custom_icon")
                 G_reader_settings:delSetting("dogear_custom_icon_name")
+                G_reader_settings:flush()
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -496,6 +499,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
                     G_reader_settings:delSetting("dogear_custom_icon")
                     G_reader_settings:delSetting("dogear_custom_icon_name")
                 end
+                G_reader_settings:flush()
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -672,10 +676,11 @@ function DogearManager:addToMainMenu(menu_items)
                     G_reader_settings:delSetting("dogear_scale_factor")
                     G_reader_settings:delSetting("dogear_margin_top")
                     G_reader_settings:delSetting("dogear_margin_right")
+                    G_reader_settings:flush()
                     self:applyDogearToLive()
                     UIManager:show(InfoMessage:new{
-                        text    = _("Dogear reset to original defaults."),
-                        timeout = 2,
+                        text    = _("Dogear reset to original defaults.\nRestart KOReader for full effect."),
+                        timeout = 3,
                     })
                 end,
             },
