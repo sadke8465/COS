@@ -259,8 +259,15 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     -- top_widget is the root widget passed to UIManager:show / close.
     local top_widget
 
+    -- Guard against queuing multiple rebuilds from rapid button taps.
+    -- Without this, each tap schedules another showSizeSlider, stacking
+    -- modals until UIManager freezes.
+    local rebuild_pending = false
+
     -- Close and rebuild at new values (live-update pattern).
     local function rebuild(ns, nmt, nmr, ni)
+        if rebuild_pending then return end
+        rebuild_pending = true
         UIManager:close(top_widget)
         UIManager:scheduleIn(0, function()
             self:showSizeSlider(ns, nmt, nmr, ni)
