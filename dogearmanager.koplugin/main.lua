@@ -98,6 +98,7 @@ function DogearManager:promptRestart()
         ok_text = _("Restart"),
         cancel_text = _("Cancel"),
         ok_callback = function()
+            G_reader_settings:flush()
             if Device:canRestart() then
                 UIManager:restartKOReader()
             else
@@ -589,7 +590,7 @@ function DogearManager:patchReaderDogear()
                 if sf ~= 1 then
                     if new_dogear_size then
                         new_dogear_size = math.ceil(new_dogear_size * sf)
-                    else
+                    elseif rd_self.dogear_max_size then
                         new_dogear_size = math.ceil(rd_self.dogear_max_size * sf)
                     end
                 end
@@ -627,12 +628,12 @@ function DogearManager:patchReaderDogear()
             end
         end
 
-        self:applyDogearToLive()
     end)
 
     if not ok then
         logger.err("DogearManager: patchReaderDogear failed:", err)
     end
+    self:applyDogearToLive()
 end
 
 function DogearManager:init()
