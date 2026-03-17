@@ -34,7 +34,10 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
+local logger = require("logger")
 local _ = require("gettext")
+
+local Screen = Device.screen
 
 local DogearManager = WidgetContainer:extend{
     name = "dogearmanager",
@@ -162,7 +165,6 @@ function DogearManager:showDesignMenu()
     })
 
     local Menu = require("ui/widget/menu")
-    local Screen = Device.screen
 
     local design_menu = Menu:new{
         title = _("Change Bookmark Design"),
@@ -178,13 +180,7 @@ function DogearManager:showDesignMenu()
 end
 
 --- Shows the size/margin adjustment dialog with a corner preview.
--- Builds (or rebuilds) the dialog at the given scale and margin values.
--- @param scale        number  current scale factor (default: read from settings)
--- @param margin_top   number  top margin in pixels (default: read from settings)
--- @param margin_right number  right margin in pixels (default: read from settings)
 function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
-    local Screen = Device.screen
-
     -- Read saved settings if not provided.
     if not scale then
         scale = G_reader_settings:readSetting("dogear_scale_factor") or 1
@@ -260,8 +256,6 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     local top_widget
 
     -- Guard against queuing multiple rebuilds from rapid button taps.
-    -- Without this, each tap schedules another showSizeSlider, stacking
-    -- modals until UIManager freezes.
     local rebuild_pending = false
 
     -- Close and rebuild at new values (live-update pattern).
@@ -283,16 +277,11 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     local vspan_def = math.floor(Size.span.vertical_default / 2)
 
     -- ── corner preview ─────────────────────────────────────────────────
-    -- Renders a scaled representation of the top-right page corner so the
-    -- user can see both icon size and margin placement at once.
-    --
-    -- The preview area represents the top (screen_h / 6) rows and full
-    -- screen width; margins and icon size are scaled proportionally.
     local corner_h = base_px * 5 + pad * 2
     local corner_w = inner_w
 
-    local repr_h = Screen:getHeight() / 6   -- real screen rows shown
-    local repr_w = Screen:getWidth()         -- real screen cols shown
+    local repr_h = Screen:getHeight() / 6
+    local repr_w = Screen:getWidth()
 
     local prev_mt   = math.floor(margin_top   * corner_h / repr_h)
     local prev_mr   = math.floor(margin_right * corner_w / repr_w)
@@ -311,19 +300,16 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         padding    = 0,
         VerticalGroup:new{
             align = "left",
-            -- Push icon down by top margin.
             VerticalSpan:new{ width = math.max(0, prev_mt) },
             HorizontalGroup:new{
                 align = "top",
-                -- Push icon left from the right edge by right margin.
                 HorizontalSpan:new{ width = left_fill },
                 makeIconWidget(prev_icon),
             },
         },
     }
 
-    -- ── scale controls row: −  [value]  + ─────────────────────────────
-    -- Single tap: ±0.1  |  The ± 0.5 step buttons are on the outer ends.
+    -- ── scale controls row ─────────────────────────────────────────────
     local btn_h       = Screen:scaleBySize(36)
     local step_btn_w  = math.floor(inner_w / 5)
     local value_box_w = inner_w - step_btn_w * 4 - hspan * 4
@@ -377,7 +363,6 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     }
 
     -- ── margin control rows ─────────────────────────────────────────────
-    -- Each row: [Label]  [−]  [value px]  [+]
     local label_w = math.floor(inner_w * 0.18)
     local mbtn_w  = math.floor(inner_w / 6)
     local mval_w  = inner_w - label_w - mbtn_w * 2 - hspan * 3
@@ -436,7 +421,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         end
     )
 
-    -- ── icon selector row: ◀  [icon name]  ▶ ──────────────────────────
+    -- ── icon selector row ──────────────────────────────────────────────
     local icon_btn_w  = step_btn_w
     local icon_name_w = inner_w - icon_btn_w * 2 - hspan * 2
     local icon_display = selected_icon_name or _("default")
@@ -473,7 +458,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
     }
 
-    -- ── action row: Cancel  Reset  Apply ───────────────────────────────
+    -- ── action row ─────────────────────────────────────────────────────
     local actions_row = HorizontalGroup:new{
         align = "center",
         Button:new{
@@ -525,28 +510,22 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         padding    = pad,
         VerticalGroup:new{
             align = "center",
-            -- Title
             TextWidget:new{
                 text = _("Bookmark Size & Margins"),
                 face = Font:getFace("cfont", 18),
                 bold = true,
             },
             VerticalSpan:new{ width = vspan_lg },
-            -- Corner preview: shows icon size + margin placement
             corner_preview,
             VerticalSpan:new{ width = vspan_lg },
-            -- Size controls
             scale_row,
             VerticalSpan:new{ width = vspan_lg },
-            -- Icon selector
             icon_row,
             VerticalSpan:new{ width = vspan_lg },
-            -- Margin controls
             top_margin_row,
             VerticalSpan:new{ width = vspan_def },
             right_margin_row,
             VerticalSpan:new{ width = vspan_lg },
-            -- Action buttons
             actions_row,
         },
     }
@@ -579,86 +558,81 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
 end
 
 --- Patches KOReader's ReaderDogear widget to apply saved scale, icon, and
--- margin settings. We monkey-patch setupDogear() and resetLayout() once so
--- that every call reads the current settings and applies them.
--- A guard flag on the class prevents double-patching.
+-- margin settings. Wrapped in pcall so a failure here never prevents
+-- documents from opening.
 function DogearManager:patchReaderDogear()
-    local ReaderDogear = require("apps/reader/modules/readerdogear")
+    local ok, err = pcall(function()
+        local ReaderDogear = require("apps/reader/modules/readerdogear")
 
-    if not ReaderDogear._dm_patched then
-        ReaderDogear._dm_patched = true
-        local orig_setupDogear = ReaderDogear.setupDogear
-        local orig_resetLayout = ReaderDogear.resetLayout
+        if not ReaderDogear._dm_patched then
+            ReaderDogear._dm_patched = true
+            local orig_setupDogear = ReaderDogear.setupDogear
+            local orig_resetLayout = ReaderDogear.resetLayout
 
-        -- Offsets the dogear's on-screen position by the saved margins.
-        -- Right margin: shrink RightContainer.dimen.w so it right-aligns the icon
-        -- margin_right pixels inward from the screen edge.
-        -- Top margin: increase the VerticalSpan (top_pad) height and reset vgroup layout.
-        local function applyMarginOffset(rd_self)
-            local mt = G_reader_settings:readSetting("dogear_margin_top")   or 0
-            local mr = G_reader_settings:readSetting("dogear_margin_right") or 0
-            if rd_self[1] and rd_self[1].dimen then
-                rd_self[1].dimen.w = Screen:getWidth() - mr
-            end
-            if mt ~= 0 and rd_self.top_pad and rd_self.vgroup then
-                rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
-                rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
-                rd_self.vgroup:resetLayout()
-            end
-        end
-
-        ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
-            local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
-            local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
-
-            -- Scale the requested size (or the default max).
-            if sf ~= 1 then
-                if new_dogear_size then
-                    new_dogear_size = math.ceil(new_dogear_size * sf)
-                else
-                    new_dogear_size = math.ceil(rd_self.dogear_max_size * sf)
+            local function applyMarginOffset(rd_self)
+                local mt = G_reader_settings:readSetting("dogear_margin_top")   or 0
+                local mr = G_reader_settings:readSetting("dogear_margin_right") or 0
+                if rd_self[1] and rd_self[1].dimen then
+                    rd_self[1].dimen.w = Screen:getWidth() - mr
+                end
+                if mt ~= 0 and rd_self.top_pad and rd_self.vgroup then
+                    rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
+                    rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
+                    rd_self.vgroup:resetLayout()
                 end
             end
 
-            orig_setupDogear(rd_self, new_dogear_size)
+            ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
+                local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
+                local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
 
-            -- Swap in custom icon if configured.
-            if icon_path and lfs.attributes(icon_path, "mode") == "file"
-               and rd_self.icon and rd_self.vgroup then
-                rd_self.icon:free()
-                rd_self.icon = ImageWidget:new{
-                    file   = icon_path,
-                    width  = rd_self.dogear_size,
-                    height = rd_self.dogear_size,
-                    alpha  = true,
-                }
-                rd_self.vgroup[2] = rd_self.icon
-            end
+                if sf ~= 1 then
+                    if new_dogear_size then
+                        new_dogear_size = math.ceil(new_dogear_size * sf)
+                    else
+                        new_dogear_size = math.ceil(rd_self.dogear_max_size * sf)
+                    end
+                end
 
-            applyMarginOffset(rd_self)
-        end
+                orig_setupDogear(rd_self, new_dogear_size)
 
-        -- resetLayout repositions the dogear after page turns / layout
-        -- changes, so we re-apply margins there too.
-        if orig_resetLayout then
-            ReaderDogear.resetLayout = function(rd_self, ...)
-                orig_resetLayout(rd_self, ...)
+                if icon_path and lfs.attributes(icon_path, "mode") == "file"
+                   and rd_self.icon and rd_self.vgroup then
+                    rd_self.icon:free()
+                    rd_self.icon = ImageWidget:new{
+                        file   = icon_path,
+                        width  = rd_self.dogear_size,
+                        height = rd_self.dogear_size,
+                        alpha  = true,
+                    }
+                    rd_self.vgroup[2] = rd_self.icon
+                end
+
                 applyMarginOffset(rd_self)
             end
-        end
 
-        -- updateDogearOffset (rolling docs) resets top_pad.width; re-apply top margin.
-        local orig_updateDogearOffset = ReaderDogear.updateDogearOffset
-        if orig_updateDogearOffset then
-            ReaderDogear.updateDogearOffset = function(rd_self, ...)
-                orig_updateDogearOffset(rd_self, ...)
-                applyMarginOffset(rd_self)
+            if orig_resetLayout then
+                ReaderDogear.resetLayout = function(rd_self, ...)
+                    orig_resetLayout(rd_self, ...)
+                    applyMarginOffset(rd_self)
+                end
+            end
+
+            local orig_updateDogearOffset = ReaderDogear.updateDogearOffset
+            if orig_updateDogearOffset then
+                ReaderDogear.updateDogearOffset = function(rd_self, ...)
+                    orig_updateDogearOffset(rd_self, ...)
+                    applyMarginOffset(rd_self)
+                end
             end
         end
+
+        self:applyDogearToLive()
+    end)
+
+    if not ok then
+        logger.err("DogearManager: patchReaderDogear failed:", err)
     end
-
-    -- Apply to the already-initialised instance.
-    self:applyDogearToLive()
 end
 
 function DogearManager:init()
