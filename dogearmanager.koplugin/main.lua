@@ -121,11 +121,7 @@ function DogearManager:applyDesign(filename, full_path)
     G_reader_settings:saveSetting("dogear_custom_icon_name", filename)
 
     self:applyDogearToLive()
-
-    UIManager:show(InfoMessage:new{
-        text = _("Bookmark design set to: ") .. filename,
-        timeout = 2,
-    })
+    self:promptRestart()
 end
 
 --- Shows the design selection submenu.
@@ -161,10 +157,7 @@ function DogearManager:showDesignMenu()
             G_reader_settings:delSetting("dogear_custom_icon")
             G_reader_settings:delSetting("dogear_custom_icon_name")
             self:applyDogearToLive()
-            UIManager:show(InfoMessage:new{
-                text = _("Bookmark design reset to default."),
-                timeout = 2,
-            })
+            self:promptRestart()
         end,
     })
 
@@ -230,9 +223,13 @@ function DogearManager:showSizeSlider(scale)
     local top_widget
 
     -- Close the dialog and rebuild at a new scale (live-update pattern).
+    -- Defer showSizeSlider to the next event-loop tick so UIManager can
+    -- finish processing the current gesture before the new dialog appears.
     local function rebuild(new_scale)
         UIManager:close(top_widget)
-        self:showSizeSlider(new_scale)
+        UIManager:scheduleIn(0, function()
+            self:showSizeSlider(new_scale)
+        end)
     end
 
     -- ── layout helpers ─────────────────────────────────────────────────
@@ -309,10 +306,7 @@ function DogearManager:showSizeSlider(scale)
                 G_reader_settings:delSetting("dogear_scale_factor")
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
-                UIManager:show(InfoMessage:new{
-                    text    = _("Bookmark size reset to default."),
-                    timeout = 2,
-                })
+                self:promptRestart()
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -322,10 +316,7 @@ function DogearManager:showSizeSlider(scale)
                 G_reader_settings:saveSetting("dogear_scale_factor", scale)
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
-                UIManager:show(InfoMessage:new{
-                    text    = _("Bookmark size set to ") .. string.format("%.1f", scale) .. "x",
-                    timeout = 2,
-                })
+                self:promptRestart()
             end,
         },
     }
