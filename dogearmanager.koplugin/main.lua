@@ -182,7 +182,7 @@ end
 -- @param scale        number  current scale factor (default: read from settings)
 -- @param margin_top   number  top margin in pixels (default: read from settings)
 -- @param margin_right number  right margin in pixels (default: read from settings)
-function DogearManager:showSizeSlider(scale, margin_top, margin_right)
+function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
     local Screen = Device.screen
 
     -- Read saved settings if not provided.
@@ -214,7 +214,26 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
     margin_top   = math.max(0, math.min(margin_max, margin_top))
     margin_right = math.max(0, math.min(margin_max, margin_right))
 
-    local custom_icon = G_reader_settings:readSetting("dogear_custom_icon")
+    -- Scan available designs for the icon selector.
+    -- icon_idx == 0 means "use default dogear"; 1..N index into designs list.
+    local designs = self:scanDesigns()
+    if icon_idx == nil then
+        local saved_icon = G_reader_settings:readSetting("dogear_custom_icon")
+        icon_idx = 0
+        if saved_icon then
+            for i, d in ipairs(designs) do
+                if d.path == saved_icon then
+                    icon_idx = i
+                    break
+                end
+            end
+        end
+    end
+
+    local selected_icon_path = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].path or nil
+    local selected_icon_name = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].text or nil
+
+    local custom_icon = selected_icon_path
 
     -- Returns a fresh icon widget at the given pixel size.
     local function makeIconWidget(sz)
@@ -241,10 +260,10 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
     local top_widget
 
     -- Close and rebuild at new values (live-update pattern).
-    local function rebuild(ns, nmt, nmr)
+    local function rebuild(ns, nmt, nmr, ni)
         UIManager:close(top_widget)
         UIManager:scheduleIn(0, function()
-            self:showSizeSlider(ns, nmt, nmr)
+            self:showSizeSlider(ns, nmt, nmr, ni)
         end)
     end
 
@@ -307,7 +326,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
             width    = step_btn_w,
             callback = function()
                 rebuild(math.max(0.5, math.floor((scale - 0.5) * 10 + 0.5) / 10),
-                        margin_top, margin_right)
+                        margin_top, margin_right, icon_idx)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -316,7 +335,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
             width    = step_btn_w,
             callback = function()
                 rebuild(math.max(0.5, math.floor((scale - 0.1) * 10 + 0.5) / 10),
-                        margin_top, margin_right)
+                        margin_top, margin_right, icon_idx)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -334,7 +353,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
             width    = step_btn_w,
             callback = function()
                 rebuild(math.min(4.0, math.floor((scale + 0.1) * 10 + 0.5) / 10),
-                        margin_top, margin_right)
+                        margin_top, margin_right, icon_idx)
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -343,7 +362,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
             width    = step_btn_w,
             callback = function()
                 rebuild(math.min(4.0, math.floor((scale + 0.5) * 10 + 0.5) / 10),
-                        margin_top, margin_right)
+                        margin_top, margin_right, icon_idx)
             end,
         },
     }
@@ -392,10 +411,10 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
         _("Top:"),
         margin_top,
         function()
-            rebuild(scale, math.max(0, margin_top - margin_step), margin_right)
+            rebuild(scale, math.max(0, margin_top - margin_step), margin_right, icon_idx)
         end,
         function()
-            rebuild(scale, math.min(margin_max, margin_top + margin_step), margin_right)
+            rebuild(scale, math.min(margin_max, margin_top + margin_step), margin_right, icon_idx)
         end
     )
 
@@ -403,12 +422,49 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
         _("Right:"),
         margin_right,
         function()
-            rebuild(scale, margin_top, math.max(0, margin_right - margin_step))
+            rebuild(scale, margin_top, math.max(0, margin_right - margin_step), icon_idx)
         end,
         function()
-            rebuild(scale, margin_top, math.min(margin_max, margin_right + margin_step))
+            rebuild(scale, margin_top, math.min(margin_max, margin_right + margin_step), icon_idx)
         end
     )
+
+    -- ── icon selector row: ◀  [icon name]  ▶ ──────────────────────────
+    local icon_btn_w  = step_btn_w
+    local icon_name_w = inner_w - icon_btn_w * 2 - hspan * 2
+    local icon_display = selected_icon_name or _("Default")
+
+    local icon_row = HorizontalGroup:new{
+        align = "center",
+        Button:new{
+            text     = "\226\151\128", -- ◀
+            width    = icon_btn_w,
+            enabled  = #designs > 0,
+            callback = function()
+                local new_idx = (icon_idx == 0) and #designs or (icon_idx - 1)
+                rebuild(scale, margin_top, margin_right, new_idx)
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        CenterContainer:new{
+            dimen = Geom:new{ w = icon_name_w, h = Screen:scaleBySize(32) },
+            TextWidget:new{
+                text      = icon_display,
+                face      = Font:getFace("cfont", 16),
+                max_width = icon_name_w,
+            },
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text     = "\226\150\182", -- ▶
+            width    = icon_btn_w,
+            enabled  = #designs > 0,
+            callback = function()
+                local new_idx = (icon_idx >= #designs) and 0 or (icon_idx + 1)
+                rebuild(scale, margin_top, margin_right, new_idx)
+            end,
+        },
+    }
 
     -- ── action row: Cancel  Reset  Apply ───────────────────────────────
     local actions_row = HorizontalGroup:new{
@@ -426,6 +482,8 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
                 G_reader_settings:delSetting("dogear_scale_factor")
                 G_reader_settings:delSetting("dogear_margin_top")
                 G_reader_settings:delSetting("dogear_margin_right")
+                G_reader_settings:delSetting("dogear_custom_icon")
+                G_reader_settings:delSetting("dogear_custom_icon_name")
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -438,6 +496,13 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
                 G_reader_settings:saveSetting("dogear_scale_factor", scale)
                 G_reader_settings:saveSetting("dogear_margin_top", margin_top)
                 G_reader_settings:saveSetting("dogear_margin_right", margin_right)
+                if selected_icon_path then
+                    G_reader_settings:saveSetting("dogear_custom_icon", selected_icon_path)
+                    G_reader_settings:saveSetting("dogear_custom_icon_name", selected_icon_name)
+                else
+                    G_reader_settings:delSetting("dogear_custom_icon")
+                    G_reader_settings:delSetting("dogear_custom_icon_name")
+                end
                 UIManager:close(top_widget)
                 self:applyDogearToLive()
                 self:promptRestart()
@@ -476,6 +541,14 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right)
             },
             VerticalSpan:new{ width = vspan_def },
             scale_row,
+            VerticalSpan:new{ width = vspan_lg },
+            -- Icon selector
+            TextWidget:new{
+                text = _("Icon:"),
+                face = Font:getFace("cfont", 16),
+            },
+            VerticalSpan:new{ width = vspan_def },
+            icon_row,
             VerticalSpan:new{ width = vspan_lg },
             -- Margin controls
             TextWidget:new{
