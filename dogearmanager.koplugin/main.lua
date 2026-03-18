@@ -14,7 +14,6 @@ Custom dogear designs can be placed in either:
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
-local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
 local Event = require("ui/event")
@@ -26,6 +25,9 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local LeftContainer = require("ui/widget/container/leftcontainer")
+local LineWidget = require("ui/widget/linewidget")
+local Menu = require("ui/widget/menu")
 local MovableContainer = require("ui/widget/container/movablecontainer")
 local Size = require("ui/size")
 local TextWidget = require("ui/widget/textwidget")
@@ -38,6 +40,17 @@ local logger = require("logger")
 local _ = require("gettext")
 
 local Screen = Device.screen
+
+-- Settings key constants
+local S_CUSTOM_ICON      = "dogear_custom_icon"
+local S_CUSTOM_ICON_NAME = "dogear_custom_icon_name"
+local S_SCALE_FACTOR     = "dogear_scale_factor"
+local S_MARGIN_TOP       = "dogear_margin_top"
+local S_MARGIN_RIGHT     = "dogear_margin_right"
+
+-- Margin scaling: right margin increments are 1.85x larger than top
+local MARGIN_RATIO = 1.85
+local MAX_STEPS = 20
 
 local DogearManager = WidgetContainer:extend{
     name = "dogearmanager",
@@ -53,6 +66,26 @@ local SUPPORTED_EXTENSIONS = {
     [".jpg"] = true,
     [".jpeg"] = true,
 }
+
+--- Compute pixel step sizes for margins based on current screen.
+-- @return top_step_px, right_step_px (right is 1.85x top)
+local function getMarginStepSizes()
+    local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
+    local base = math.max(2, math.ceil(screen_min / 128))
+    return base, math.ceil(base * MARGIN_RATIO)
+end
+
+--- Convert step count to pixels for top margin.
+local function topStepsToPx(steps)
+    local top_step = getMarginStepSizes()
+    return steps * top_step
+end
+
+--- Convert step count to pixels for right margin.
+local function rightStepsToPx(steps)
+    local _, right_step = getMarginStepSizes()
+    return steps * right_step
+end
 
 function DogearManager:getIconsDir()
     return DataStorage:getDataDir() .. "/icons/dogears"
@@ -87,7 +120,7 @@ end
 
 function DogearManager:applyDogearToLive()
     local dogear_widget = self.ui and self.ui.view and self.ui.view.dogear
-    
+
     if dogear_widget then
         dogear_widget.dogear_size = nil
         dogear_widget:setupDogear()
@@ -96,9 +129,19 @@ function DogearManager:applyDogearToLive()
     end
 end
 
+--- Reset all dogear settings to defaults.
+function DogearManager:resetAll()
+    G_reader_settings:delSetting(S_CUSTOM_ICON)
+    G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
+    G_reader_settings:delSetting(S_SCALE_FACTOR)
+    G_reader_settings:delSetting(S_MARGIN_TOP)
+    G_reader_settings:delSetting(S_MARGIN_RIGHT)
+    self:applyDogearToLive()
+end
+
 function DogearManager:applyDesign(filename, full_path)
-    G_reader_settings:saveSetting("dogear_custom_icon", full_path)
-    G_reader_settings:saveSetting("dogear_custom_icon_name", filename)
+    G_reader_settings:saveSetting(S_CUSTOM_ICON, full_path)
+    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, filename)
 
     self:applyDogearToLive()
     UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
@@ -131,16 +174,15 @@ function DogearManager:showDesignMenu()
     table.insert(menu_items, {
         text = _("-- Reset to Default --"),
         callback = function()
-            G_reader_settings:delSetting("dogear_custom_icon")
-            G_reader_settings:delSetting("dogear_custom_icon_name")
+            G_reader_settings:delSetting(S_CUSTOM_ICON)
+            G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
             self:applyDogearToLive()
             UIManager:show(InfoMessage:new{ text = _("Bookmark reset to default."), timeout = 2 })
         end,
     })
 
-    local Menu = require("ui/widget/menu")
-
-    local design_menu = Menu:new{
+    local design_menu
+    design_menu = Menu:new{
         title = _("Change Bookmark Design"),
         item_table = menu_items,
         width = Screen:getWidth(),
@@ -153,27 +195,58 @@ function DogearManager:showDesignMenu()
     UIManager:show(design_menu)
 end
 
-function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
-    if not scale then scale = G_reader_settings:readSetting("dogear_scale_factor") or 1 end
-    if not margin_top then margin_top = G_reader_settings:readSetting("dogear_margin_top") or 0 end
-    if not margin_right then margin_right = G_reader_settings:readSetting("dogear_margin_right") or 0 end
+--- Build a section label widget, left-aligned.
+local function sectionLabel(text, inner_w)
+    return LeftContainer:new{
+        dimen = Geom:new{ w = inner_w, h = Screen:scaleBySize(24) },
+        TextWidget:new{
+            text = text,
+            face = Font:getFace("smallinfofont", 16),
+            bold = true,
+        },
+    }
+end
 
+--- Build a horizontal separator line.
+local function separator(inner_w)
+    return CenterContainer:new{
+        dimen = Geom:new{ w = inner_w, h = Size.line.medium },
+        LineWidget:new{
+            dimen = Geom:new{ w = inner_w, h = Size.line.medium },
+            background = Blitbuffer.COLOR_GRAY,
+        },
+    }
+end
+
+function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, designs)
+    -- Load saved settings if not provided
+    if not scale then scale = G_reader_settings:readSetting(S_SCALE_FACTOR) or 1 end
+    if not mt_steps then mt_steps = G_reader_settings:readSetting(S_MARGIN_TOP) or 0 end
+    if not mr_steps then mr_steps = G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0 end
+
+    -- Round and clamp scale
     scale = math.floor(scale * 10 + 0.5) / 10
     scale = math.max(0.5, math.min(4.0, scale))
 
-    local screen_min  = math.min(Screen:getWidth(), Screen:getHeight())
-    local base_px     = math.ceil(screen_min / 32)
-    local preview_px  = math.max(12, math.ceil(base_px * scale))
+    -- Clamp margin steps
+    mt_steps = math.max(0, math.min(MAX_STEPS, mt_steps))
+    mr_steps = math.max(0, math.min(MAX_STEPS, mr_steps))
 
-    local margin_step = math.max(2, math.ceil(base_px / 4))
-    local margin_max  = math.floor(screen_min / 4)
+    -- Compute pixel values for preview
+    local top_step_px, right_step_px = getMarginStepSizes()
+    local margin_top_px = mt_steps * top_step_px
+    local margin_right_px = mr_steps * right_step_px
 
-    margin_top   = math.max(0, math.min(margin_max, margin_top))
-    margin_right = math.max(0, math.min(margin_max, margin_right))
+    local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
+    local base_px = math.ceil(screen_min / 32)
+    local preview_px = math.max(12, math.ceil(base_px * scale))
 
-    local designs = self:scanDesigns()
+    -- Scan designs once and pass through rebuilds
+    if not designs then
+        designs = self:scanDesigns()
+    end
     if icon_idx == nil then
-        local saved_icon = G_reader_settings:readSetting("dogear_custom_icon")
+        local saved_icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
         icon_idx = 0
         if saved_icon then
             for i, d in ipairs(designs) do
@@ -184,6 +257,8 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
             end
         end
     end
+    -- Clamp icon_idx in case designs changed
+    icon_idx = math.max(0, math.min(icon_idx, #designs))
 
     local selected_icon_path = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].path or nil
     local selected_icon_name = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].text or nil
@@ -208,6 +283,7 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         end
     end
 
+    -- Rebuild: close and reopen with new parameters (passes designs to avoid rescan)
     local top_widget
     local rebuild_pending = false
 
@@ -216,29 +292,31 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         rebuild_pending = true
         UIManager:close(top_widget)
         UIManager:scheduleIn(0, function()
-            self:showSizeSlider(ns, nmt, nmr, ni)
+            self:showSizeSlider(ns, nmt, nmr, ni, designs)
         end)
     end
 
-    local dialog_w  = math.floor(Screen:getWidth() * 0.90) 
+    -- Layout dimensions
+    local dialog_w  = math.floor(Screen:getWidth() * 0.90)
     local pad       = Size.padding.large
     local inner_w   = dialog_w - pad * 2
     local hspan     = Size.span.horizontal_default
+    local vspan_sm  = Size.span.vertical_default
     local vspan_lg  = Size.span.vertical_default * 2
-    local vspan_def = Size.span.vertical_default
-    local btn_h     = Screen:scaleBySize(48)
+    local btn_h     = Screen:scaleBySize(52)
 
+    -- Corner preview: scaled representation of the dogear position
     local corner_h = math.floor(Screen:getHeight() / 7)
     local corner_w = inner_w
     local repr_h = Screen:getHeight() / 6
     local repr_w = Screen:getWidth()
 
-    local prev_mt   = math.floor(margin_top   * corner_h / repr_h)
-    local prev_mr   = math.floor(margin_right * corner_w / repr_w)
+    local prev_mt   = math.floor(margin_top_px   * corner_h / repr_h)
+    local prev_mr   = math.floor(margin_right_px * corner_w / repr_w)
     local prev_icon = math.max(8, math.floor(preview_px * corner_h / repr_h))
 
-    prev_mt   = math.min(prev_mt,   corner_h - prev_icon - 2)
-    prev_mr   = math.min(prev_mr,   corner_w - prev_icon - 2)
+    prev_mt   = math.min(prev_mt, corner_h - prev_icon - 2)
+    prev_mr   = math.min(prev_mr, corner_w - prev_icon - 2)
     local left_fill = math.max(0, corner_w - prev_mr - prev_icon)
 
     local corner_preview = FrameContainer:new{
@@ -258,103 +336,217 @@ function DogearManager:showSizeSlider(scale, margin_top, margin_right, icon_idx)
         },
     }
 
-    local step_btn_w  = math.floor((inner_w - (hspan * 4)) * 0.18)
-    local value_box_w = inner_w - (step_btn_w * 4) - (hspan * 4)
-
-    local scale_row = HorizontalGroup:new{
-        align = "center",
-        Button:new{ text = "−.5", width = step_btn_w, callback = function() rebuild(math.max(0.5, math.floor((scale - 0.5) * 10 + 0.5) / 10), margin_top, margin_right, icon_idx) end },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "−", width = step_btn_w, callback = function() rebuild(math.max(0.5, math.floor((scale - 0.1) * 10 + 0.5) / 10), margin_top, margin_right, icon_idx) end },
-        HorizontalSpan:new{ width = hspan },
-        CenterContainer:new{ dimen = Geom:new{ w = value_box_w, h = btn_h }, TextWidget:new{ text = string.format("%.1f×", scale), face = Font:getFace("cfont", 20), bold = true } },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "+", width = step_btn_w, callback = function() rebuild(math.min(4.0, math.floor((scale + 0.1) * 10 + 0.5) / 10), margin_top, margin_right, icon_idx) end },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "+.5", width = step_btn_w, callback = function() rebuild(math.min(4.0, math.floor((scale + 0.5) * 10 + 0.5) / 10), margin_top, margin_right, icon_idx) end },
-    }
-
-    local label_w = math.floor(inner_w * 0.20)
-    local mbtn_w  = math.floor(inner_w * 0.18)
-    local mval_w  = inner_w - label_w - mbtn_w * 2 - hspan * 3
-
-    local function marginRow(label, value, on_dec, on_inc)
-        return HorizontalGroup:new{
-            align = "center",
-            CenterContainer:new{ dimen = Geom:new{ w = label_w, h = btn_h }, TextWidget:new{ text = label, face = Font:getFace("cfont", 18) } },
-            HorizontalSpan:new{ width = hspan },
-            Button:new{ text = "−", width = mbtn_w, callback = on_dec },
-            HorizontalSpan:new{ width = hspan },
-            CenterContainer:new{ dimen = Geom:new{ w = mval_w, h = btn_h }, TextWidget:new{ text = value .. "px", face = Font:getFace("cfont", 18), bold = true } },
-            HorizontalSpan:new{ width = hspan },
-            Button:new{ text = "+", width = mbtn_w, callback = on_inc },
-        }
-    end
-
-    local top_margin_row = marginRow(_("Top"), margin_top, function() rebuild(scale, math.max(0, margin_top - margin_step), margin_right, icon_idx) end, function() rebuild(scale, math.min(margin_max, margin_top + margin_step), margin_right, icon_idx) end)
-    local right_margin_row = marginRow(_("Right"), margin_right, function() rebuild(scale, margin_top, math.max(0, margin_right - margin_step), icon_idx) end, function() rebuild(scale, margin_top, math.min(margin_max, margin_right + margin_step), icon_idx) end)
-
-    local icon_btn_w  = mbtn_w
+    -- === DESIGN section ===
+    local icon_btn_w  = math.floor(inner_w * 0.18)
     local icon_name_w = inner_w - icon_btn_w * 2 - hspan * 2
     local icon_display = selected_icon_name or _("default")
 
     local icon_row = HorizontalGroup:new{
         align = "center",
-        Button:new{ text = "\226\151\128", width = icon_btn_w, enabled = #designs > 0, callback = function() local new_idx = (icon_idx == 0) and #designs or (icon_idx - 1); rebuild(scale, margin_top, margin_right, new_idx) end },
+        Button:new{
+            text = "\u{25C0}",
+            width = icon_btn_w,
+            enabled = #designs > 0,
+            callback = function()
+                local new_idx = (icon_idx == 0) and #designs or (icon_idx - 1)
+                rebuild(scale, mt_steps, mr_steps, new_idx)
+            end,
+        },
         HorizontalSpan:new{ width = hspan },
-        CenterContainer:new{ dimen = Geom:new{ w = icon_name_w, h = btn_h }, TextWidget:new{ text = icon_display, face = Font:getFace("cfont", 16), max_width = icon_name_w - 5 } },
+        CenterContainer:new{
+            dimen = Geom:new{ w = icon_name_w, h = btn_h },
+            TextWidget:new{
+                text = icon_display,
+                face = Font:getFace("cfont", 18),
+                max_width = icon_name_w - Size.padding.default * 2,
+            },
+        },
         HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "\226\150\182", width = icon_btn_w, enabled = #designs > 0, callback = function() local new_idx = (icon_idx >= #designs) and 0 or (icon_idx + 1); rebuild(scale, margin_top, margin_right, new_idx) end },
+        Button:new{
+            text = "\u{25B6}",
+            width = icon_btn_w,
+            enabled = #designs > 0,
+            callback = function()
+                local new_idx = (icon_idx >= #designs) and 0 or (icon_idx + 1)
+                rebuild(scale, mt_steps, mr_steps, new_idx)
+            end,
+        },
     }
 
+    -- === SIZE section ===
+    local step_btn_w  = math.floor((inner_w - (hspan * 4)) * 0.18)
+    local value_box_w = inner_w - (step_btn_w * 4) - (hspan * 4)
+
+    local function clampScale(v)
+        return math.max(0.5, math.min(4.0, math.floor(v * 10 + 0.5) / 10))
+    end
+
+    local scale_row = HorizontalGroup:new{
+        align = "center",
+        Button:new{ text = "−−", width = step_btn_w, callback = function() rebuild(clampScale(scale - 0.5), mt_steps, mr_steps, icon_idx) end },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{ text = "−",  width = step_btn_w, callback = function() rebuild(clampScale(scale - 0.1), mt_steps, mr_steps, icon_idx) end },
+        HorizontalSpan:new{ width = hspan },
+        CenterContainer:new{
+            dimen = Geom:new{ w = value_box_w, h = btn_h },
+            TextWidget:new{
+                text = string.format("%.1f\u{00D7}", scale),
+                face = Font:getFace("cfont", 22),
+                bold = true,
+            },
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{ text = "+",  width = step_btn_w, callback = function() rebuild(clampScale(scale + 0.1), mt_steps, mr_steps, icon_idx) end },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{ text = "++", width = step_btn_w, callback = function() rebuild(clampScale(scale + 0.5), mt_steps, mr_steps, icon_idx) end },
+    }
+
+    -- === POSITION section ===
+    local label_w = math.floor(inner_w * 0.20)
+    local mbtn_w  = math.floor(inner_w * 0.18)
+    local mval_w  = inner_w - label_w - mbtn_w * 2 - hspan * 3
+
+    local function marginRow(label, step_val, on_dec, on_inc)
+        return HorizontalGroup:new{
+            align = "center",
+            CenterContainer:new{
+                dimen = Geom:new{ w = label_w, h = btn_h },
+                TextWidget:new{ text = label, face = Font:getFace("cfont", 18) },
+            },
+            HorizontalSpan:new{ width = hspan },
+            Button:new{ text = "−", width = mbtn_w, callback = on_dec },
+            HorizontalSpan:new{ width = hspan },
+            CenterContainer:new{
+                dimen = Geom:new{ w = mval_w, h = btn_h },
+                TextWidget:new{
+                    text = tostring(step_val),
+                    face = Font:getFace("cfont", 20),
+                    bold = true,
+                },
+            },
+            HorizontalSpan:new{ width = hspan },
+            Button:new{ text = "+", width = mbtn_w, callback = on_inc },
+        }
+    end
+
+    local top_margin_row = marginRow(
+        _("Top"), mt_steps,
+        function() rebuild(scale, math.max(0, mt_steps - 1), mr_steps, icon_idx) end,
+        function() rebuild(scale, math.min(MAX_STEPS, mt_steps + 1), mr_steps, icon_idx) end
+    )
+    local right_margin_row = marginRow(
+        _("Right"), mr_steps,
+        function() rebuild(scale, mt_steps, math.max(0, mr_steps - 1), icon_idx) end,
+        function() rebuild(scale, mt_steps, math.min(MAX_STEPS, mr_steps + 1), icon_idx) end
+    )
+
+    -- === ACTION buttons ===
     local act_btn_w = math.floor((inner_w - hspan * 2) / 3)
     local actions_row = HorizontalGroup:new{
         align = "center",
-        Button:new{ text = _("Cancel"), width = act_btn_w, callback = function() UIManager:close(top_widget) end },
+        Button:new{
+            text = _("Cancel"),
+            width = act_btn_w,
+            callback = function()
+                UIManager:close(top_widget)
+            end,
+        },
         HorizontalSpan:new{ width = hspan },
-        Button:new{ text = _("Reset"), width = act_btn_w, callback = function()
-            G_reader_settings:delSetting("dogear_scale_factor")
-            G_reader_settings:delSetting("dogear_margin_top")
-            G_reader_settings:delSetting("dogear_margin_right")
-            G_reader_settings:delSetting("dogear_custom_icon")
-            G_reader_settings:delSetting("dogear_custom_icon_name")
-            UIManager:close(top_widget)
-            self:applyDogearToLive()
-            UIManager:show(InfoMessage:new{ text = _("Bookmark settings reset."), timeout = 2 })
-        end },
+        Button:new{
+            text = _("Reset"),
+            width = act_btn_w,
+            callback = function()
+                UIManager:close(top_widget)
+                self:resetAll()
+                UIManager:show(InfoMessage:new{ text = _("Bookmark settings reset."), timeout = 2 })
+            end,
+        },
         HorizontalSpan:new{ width = hspan },
-        Button:new{ text = _("Apply"), width = act_btn_w, callback = function()
-            G_reader_settings:saveSetting("dogear_scale_factor", scale)
-            G_reader_settings:saveSetting("dogear_margin_top", margin_top)
-            G_reader_settings:saveSetting("dogear_margin_right", margin_right)
-            if selected_icon_path then
-                G_reader_settings:saveSetting("dogear_custom_icon", selected_icon_path)
-                G_reader_settings:saveSetting("dogear_custom_icon_name", selected_icon_name)
-            else
-                G_reader_settings:delSetting("dogear_custom_icon")
-                G_reader_settings:delSetting("dogear_custom_icon_name")
-            end
-            UIManager:close(top_widget)
-            self:applyDogearToLive()
-            UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
-        end },
+        Button:new{
+            text = _("Apply"),
+            width = act_btn_w,
+            callback = function()
+                G_reader_settings:saveSetting(S_SCALE_FACTOR, scale)
+                G_reader_settings:saveSetting(S_MARGIN_TOP, mt_steps)
+                G_reader_settings:saveSetting(S_MARGIN_RIGHT, mr_steps)
+                if selected_icon_path then
+                    G_reader_settings:saveSetting(S_CUSTOM_ICON, selected_icon_path)
+                    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, selected_icon_name)
+                else
+                    G_reader_settings:delSetting(S_CUSTOM_ICON)
+                    G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
+                end
+                UIManager:close(top_widget)
+                self:applyDogearToLive()
+                UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
+            end,
+        },
     }
 
+    -- === Compose dialog ===
     local dialog_frame = FrameContainer:new{
-        background = Blitbuffer.COLOR_WHITE, bordersize = Size.border.window, radius = Size.radius.window, padding = pad,
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = Size.border.window,
+        radius = Size.radius.window,
+        padding = pad,
         VerticalGroup:new{
             align = "center",
-            TextWidget:new{ text = _("Bookmark Size & Margins"), face = Font:getFace("cfont", 22), bold = true },
-            VerticalSpan:new{ width = vspan_lg }, corner_preview, VerticalSpan:new{ width = vspan_lg }, scale_row, VerticalSpan:new{ width = vspan_lg }, icon_row, VerticalSpan:new{ width = vspan_lg }, top_margin_row, VerticalSpan:new{ width = vspan_def }, right_margin_row, VerticalSpan:new{ width = vspan_lg }, actions_row,
+            -- Title
+            TextWidget:new{
+                text = _("Bookmark Size & Margins"),
+                face = Font:getFace("cfont", 22),
+                bold = true,
+            },
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Preview
+            corner_preview,
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Design section
+            sectionLabel(_("DESIGN"), inner_w),
+            VerticalSpan:new{ width = vspan_sm },
+            icon_row,
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Separator
+            separator(inner_w),
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Size section
+            sectionLabel(_("SIZE"), inner_w),
+            VerticalSpan:new{ width = vspan_sm },
+            scale_row,
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Separator
+            separator(inner_w),
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Position section
+            sectionLabel(_("POSITION") .. "  (" .. _("right steps are 1.85\u{00D7} larger") .. ")", inner_w),
+            VerticalSpan:new{ width = vspan_sm },
+            top_margin_row,
+            VerticalSpan:new{ width = vspan_sm },
+            right_margin_row,
+            VerticalSpan:new{ width = vspan_lg },
+
+            -- Actions
+            actions_row,
         },
     }
 
     top_widget = InputContainer:new{ modal = true, dimen = Screen:getSize() }
-    top_widget[1] = CenterContainer:new{ dimen = Screen:getSize(), MovableContainer:new{ dialog_frame } }
+    top_widget[1] = CenterContainer:new{
+        dimen = Screen:getSize(),
+        MovableContainer:new{ dialog_frame },
+    }
 
     if Device:isTouchDevice() then
         function top_widget:onGesture(ev)
-            if self[1] and self[1]:handleEvent(Event:new("Gesture", ev)) then return true end
+            if self[1] and self[1]:handleEvent(Event:new("Gesture", ev)) then
+                return true
+            end
             if ev.ges == "tap" and dialog_frame.dimen then
                 if ev.pos:notIntersectWith(dialog_frame.dimen) then
                     UIManager:close(self)
@@ -377,34 +569,42 @@ function DogearManager:patchReaderDogear()
             local orig_resetLayout = ReaderDogear.resetLayout
 
             local function applyMarginOffset(rd_self)
-                local mt = G_reader_settings:readSetting("dogear_margin_top")   or 0
-                local mr = G_reader_settings:readSetting("dogear_margin_right") or 0
-                
+                local mt_steps = G_reader_settings:readSetting(S_MARGIN_TOP) or 0
+                local mr_steps = G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0
+                local mt = topStepsToPx(mt_steps)
+                local mr = rightStepsToPx(mr_steps)
+
                 if not (rd_self.vgroup and rd_self.icon and rd_self.top_pad) then return end
 
-                -- 1. Restore the main container width (removes the old override hack)
+                -- Update main container dimensions
                 if rd_self[1] and rd_self[1].dimen then
                     rd_self[1].dimen.w = Screen:getWidth()
                     rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
                 end
 
-                -- 2. Apply Top Margin 
-                rd_self.top_pad.height = (rd_self.dogear_y_offset or 0) + mt
+                -- Apply top margin (VerticalSpan uses .width for its size)
+                rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
 
-                -- 3. Apply Right Margin using proper layout alignment
+                -- Apply right margin
                 if mr > 0 then
-                    -- Clean up old wrapper to prevent nesting loops
+                    -- Detach icon from old wrapper before freeing to avoid invalidation
                     if rd_self._dm_wrapper then
+                        rd_self._dm_wrapper[1] = nil
                         rd_self._dm_wrapper:free()
                     end
-                    
+
                     rd_self._dm_wrapper = HorizontalGroup:new{
                         align = "top",
                         rd_self.icon,
-                        HorizontalSpan:new{ width = mr }
+                        HorizontalSpan:new{ width = mr },
                     }
                     rd_self.vgroup[2] = rd_self._dm_wrapper
                 else
+                    if rd_self._dm_wrapper then
+                        rd_self._dm_wrapper[1] = nil
+                        rd_self._dm_wrapper:free()
+                        rd_self._dm_wrapper = nil
+                    end
                     rd_self.vgroup[2] = rd_self.icon
                 end
 
@@ -412,8 +612,8 @@ function DogearManager:patchReaderDogear()
             end
 
             ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
-                local sf = G_reader_settings:readSetting("dogear_scale_factor") or 1
-                local icon_path = G_reader_settings:readSetting("dogear_custom_icon")
+                local sf = G_reader_settings:readSetting(S_SCALE_FACTOR) or 1
+                local icon_path = G_reader_settings:readSetting(S_CUSTOM_ICON)
 
                 if sf ~= 1 then
                     if new_dogear_size then
@@ -425,6 +625,7 @@ function DogearManager:patchReaderDogear()
 
                 -- Free old custom wrappers and icons before rebuilding
                 if rd_self._dm_wrapper then
+                    rd_self._dm_wrapper[1] = nil
                     rd_self._dm_wrapper:free()
                     rd_self._dm_wrapper = nil
                 end
@@ -503,12 +704,7 @@ function DogearManager:addToMainMenu(menu_items)
                 text = _("Reset to Original Dogear"),
                 keep_menu_open = false,
                 callback = function()
-                    G_reader_settings:delSetting("dogear_custom_icon")
-                    G_reader_settings:delSetting("dogear_custom_icon_name")
-                    G_reader_settings:delSetting("dogear_scale_factor")
-                    G_reader_settings:delSetting("dogear_margin_top")
-                    G_reader_settings:delSetting("dogear_margin_right")
-                    self:applyDogearToLive()
+                    self:resetAll()
                     UIManager:show(InfoMessage:new{ text = _("Dogear reset to original defaults."), timeout = 2 })
                 end,
             },
