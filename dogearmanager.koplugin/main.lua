@@ -564,9 +564,16 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
     }
 
     top_widget = InputContainer:new{ modal = true, dimen = Screen:getSize() }
-    top_widget[1] = CenterContainer:new{
-        dimen = Screen:getSize(),
-        MovableContainer:new{ dialog_frame },
+    top_widget[1] = FrameContainer:new{
+        width      = Screen:getWidth(),
+        height     = Screen:getHeight(),
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = 0,
+        padding    = 0,
+        CenterContainer:new{
+            dimen = Screen:getSize(),
+            MovableContainer:new{ dialog_frame },
+        },
     }
 
     if Device:isTouchDevice() then
