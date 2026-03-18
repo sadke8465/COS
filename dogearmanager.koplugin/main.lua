@@ -218,6 +218,21 @@ local function separator(inner_w)
     }
 end
 
+--- Build a framed value display box (makes value fields visually distinct).
+local function valueBox(text_widget, box_w, box_h)
+    local b = Size.border.default
+    return FrameContainer:new{
+        bordersize = b,
+        radius     = Size.radius.button,
+        padding    = 0,
+        background = Blitbuffer.COLOR_WHITE,
+        CenterContainer:new{
+            dimen = Geom:new{ w = box_w - b * 2, h = box_h - b * 2 },
+            text_widget,
+        },
+    }
+end
+
 function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, designs)
     -- Load saved settings if not provided
     if not scale then scale = G_reader_settings:readSetting(S_SCALE_FACTOR) or 1 end
@@ -322,7 +337,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
     local corner_preview = FrameContainer:new{
         width      = corner_w,
         height     = corner_h,
-        background = Blitbuffer.COLOR_LIGHT_GRAY,
+        background = Blitbuffer.COLOR_WHITE,
         bordersize = Size.border.default,
         padding    = 0,
         VerticalGroup:new{
@@ -387,14 +402,14 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
         HorizontalSpan:new{ width = hspan },
         Button:new{ text = "−",  width = step_btn_w, callback = function() rebuild(clampScale(scale - 0.1), mt_steps, mr_steps, icon_idx) end },
         HorizontalSpan:new{ width = hspan },
-        CenterContainer:new{
-            dimen = Geom:new{ w = value_box_w, h = btn_h },
+        valueBox(
             TextWidget:new{
                 text = string.format("%.1f\u{00D7}", scale),
                 face = Font:getFace("cfont", 22),
                 bold = true,
             },
-        },
+            value_box_w, btn_h
+        ),
         HorizontalSpan:new{ width = hspan },
         Button:new{ text = "+",  width = step_btn_w, callback = function() rebuild(clampScale(scale + 0.1), mt_steps, mr_steps, icon_idx) end },
         HorizontalSpan:new{ width = hspan },
@@ -416,14 +431,14 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             HorizontalSpan:new{ width = hspan },
             Button:new{ text = "−", width = mbtn_w, callback = on_dec },
             HorizontalSpan:new{ width = hspan },
-            CenterContainer:new{
-                dimen = Geom:new{ w = mval_w, h = btn_h },
+            valueBox(
                 TextWidget:new{
                     text = tostring(step_val),
                     face = Font:getFace("cfont", 20),
                     bold = true,
                 },
-            },
+                mval_w, btn_h
+            ),
             HorizontalSpan:new{ width = hspan },
             Button:new{ text = "+", width = mbtn_w, callback = on_inc },
         }
@@ -500,11 +515,15 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             VerticalSpan:new{ width = vspan_lg },
 
             -- Preview
+            sectionLabel(_("Preview"), inner_w),
+            VerticalSpan:new{ width = vspan_sm },
             corner_preview,
             VerticalSpan:new{ width = vspan_lg },
 
             -- Design section
-            sectionLabel(_("DESIGN"), inner_w),
+            separator(inner_w),
+            VerticalSpan:new{ width = vspan_lg },
+            sectionLabel(_("Design"), inner_w),
             VerticalSpan:new{ width = vspan_sm },
             icon_row,
             VerticalSpan:new{ width = vspan_lg },
@@ -514,7 +533,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             VerticalSpan:new{ width = vspan_lg },
 
             -- Size section
-            sectionLabel(_("SIZE"), inner_w),
+            sectionLabel(_("Size"), inner_w),
             VerticalSpan:new{ width = vspan_sm },
             scale_row,
             VerticalSpan:new{ width = vspan_lg },
@@ -524,7 +543,15 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             VerticalSpan:new{ width = vspan_lg },
 
             -- Position section
-            sectionLabel(_("POSITION") .. "  (" .. _("right steps are 1.85\u{00D7} larger") .. ")", inner_w),
+            sectionLabel(_("Position"), inner_w),
+            VerticalSpan:new{ width = math.floor(vspan_sm / 2) },
+            LeftContainer:new{
+                dimen = Geom:new{ w = inner_w, h = Screen:scaleBySize(18) },
+                TextWidget:new{
+                    text = _("Right steps are 1.85\u{00D7} larger than top"),
+                    face = Font:getFace("smallinfofont", 14),
+                },
+            },
             VerticalSpan:new{ width = vspan_sm },
             top_margin_row,
             VerticalSpan:new{ width = vspan_sm },
