@@ -1,64 +1,80 @@
 # Dogear Manager — KOReader Plugin
 
-A native, on-device interface for KOReader that lets you swap and resize your digital bookmark ("dogear") without ever needing a computer.
+Change the dogear (the folded-corner bookmark) in KOReader without touching a config file. Swap the image, scale it up or down, and nudge its position — all from a menu while reading.
 
-## Target Environment
+## Requirements
 
-- **Hardware**: Jailbroken Amazon Kindle 10th Generation
-- **Software**: KOReader v2025.10
+- Jailbroken Amazon Kindle (tested on 10th gen)
+- KOReader v2025.10+
 
 ## Installation
 
-1. Connect your Kindle to a computer via USB.
-2. Copy the `dogearmanager.koplugin` folder into your KOReader plugins directory:
+1. Connect your Kindle via USB.
+2. Drop the `dogearmanager.koplugin` folder into your KOReader plugins directory:
    ```
    /mnt/us/koreader/plugins/dogearmanager.koplugin/
    ```
-3. (Optional) Create the custom designs folder and add your bookmark images:
-   ```
-   /mnt/us/koreader/icons/dogears/
-   ```
-   Supported formats: `.png`, `.svg`, `.bmp`, `.jpg`, `.jpeg`, `.alpha`
-4. Restart KOReader.
+3. Restart KOReader.
+
+That's it. The plugin shows up under **Tools → Dogear Manager**.
 
 ## Usage
 
-1. Open the top menu in KOReader.
-2. Go to **Tools** → **Dogear Manager**.
-3. Choose an option:
-   - **Change Bookmark Design** — pick from any custom images you placed in the `icons/dogears/` folder.
-   - **Adjust Bookmark Size** — enter a numeric multiplier (e.g., `2` for 2x larger, `0.5` for half size).
-4. When prompted, tap **Restart** to apply changes.
+Open a book, go to **Tools → Dogear Manager**. You'll see three options:
 
-## How It Works
+### Change Bookmark Design
 
-The plugin saves two settings to KOReader's global configuration:
+Shows a scrollable list of all image files found in the custom icons folders. Tap one to switch to it immediately — no restart needed. There's also a "Reset to Default" entry at the bottom to go back to KOReader's built-in dogear.
 
-| Setting | Description |
+### Adjust Bookmark Size & Margins
+
+A dialog with:
+- **Live corner preview** — a scaled-down representation of the top-right corner so you can see the result before applying.
+- **Design picker** — arrow buttons to cycle through available icons.
+- **Size** — scale from 0.5× to 4.0×, adjusted in 0.1 steps (or 0.5 with the double buttons).
+- **Position** — top and right margin in discrete steps (0–20). Right steps are physically larger than top steps (ratio ~1.85×) to account for screen aspect ratio.
+
+Hit **Apply** to save and update the dogear live. **Reset** clears all custom settings at once.
+
+### Reset to Original Dogear
+
+Clears the custom icon, scale, and margin settings in one tap. The dogear reverts to KOReader's default immediately.
+
+## Adding Custom Designs
+
+Place image files in either location:
+
+**Bundled with the plugin** (applies to everyone using this plugin copy):
+```
+dogearmanager.koplugin/icons/
+```
+
+**User-specific** (won't be overwritten if you update the plugin):
+```
+/mnt/us/koreader/icons/dogears/
+```
+
+Supported formats: `.png`, `.svg`, `.bmp`, `.jpg`, `.jpeg`, `.alpha`
+
+Files from both folders are merged into a single sorted list. If two files share the same filename, the plugin-bundled one takes precedence.
+
+## Settings
+
+The plugin stores its settings in KOReader's global config (`G_reader_settings`):
+
+| Key | Description |
 |---|---|
-| `dogear_custom_icon` | Full path to the selected custom dogear image |
-| `dogear_scale_factor` | Numeric multiplier for the dogear size (default: 1) |
-
-These settings are read by KOReader's `ReaderDogear` widget on startup. A KOReader restart is required after changes so the widget reinitializes with the new values.
+| `dogear_custom_icon` | Full path to the selected icon file |
+| `dogear_custom_icon_name` | Filename of the selected icon (for display) |
+| `dogear_scale_factor` | Size multiplier, default `1` |
+| `dogear_margin_top` | Top margin in steps (each step ≈ `screen_min / 128` px) |
+| `dogear_margin_right` | Right margin in steps (each step ≈ `1.85 × top_step` px) |
 
 ## File Structure
 
 ```
 dogearmanager.koplugin/
-├── _meta.lua    # Plugin metadata (name, description)
-└── main.lua     # Plugin logic (menus, scanning, settings)
+├── _meta.lua    # Plugin name and description
+├── main.lua     # All plugin logic
+└── icons/       # Optional: bundle your own dogear designs here
 ```
-
-## Adding Custom Designs
-
-Place your custom bookmark image files in:
-```
-<koreader_data_dir>/icons/dogears/
-```
-
-On a Kindle, this is typically:
-```
-/mnt/us/koreader/icons/dogears/
-```
-
-The plugin scans this folder and displays all valid images in a selectable list.
