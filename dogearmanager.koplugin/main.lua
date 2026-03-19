@@ -449,6 +449,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
                     self._slider_originals = nil
                 end
                 UIManager:close(top_widget)
+                UIManager:setDirty("all", "flashui")
             end,
         },
         HorizontalSpan:new{ width = hspan },
@@ -458,6 +459,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             callback = function()
                 self._slider_originals = nil
                 UIManager:close(top_widget)
+                UIManager:setDirty("all", "flashui")
                 self:resetAll()
                 UIManager:show(InfoMessage:new{ text = _("Bookmark settings reset."), timeout = 2 })
             end,
@@ -470,6 +472,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
                 -- Settings already applied live; just commit and close
                 self._slider_originals = nil
                 UIManager:close(top_widget)
+                UIManager:setDirty("all", "flashui")
                 UIManager:scheduleIn(0, function()
                     UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
                 end)
@@ -550,6 +553,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             if ev.ges == "tap" and dialog_frame.dimen then
                 if ev.pos:notIntersectWith(dialog_frame.dimen) then
                     UIManager:close(self)
+                    UIManager:setDirty("all", "flashui")
                     return true
                 end
             end
