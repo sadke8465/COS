@@ -4,7 +4,7 @@ Change the dogear (the folded-corner bookmark) in KOReader without touching a co
 
 ## Requirements
 
-- Jailbroken Amazon Kindle (tested on 10th gen)
+- Jailbroken Amazon Kindle
 - KOReader v2025.10+
 
 ## Installation
@@ -78,3 +78,7 @@ dogearmanager.koplugin/
 ├── main.lua     # All plugin logic
 └── icons/       # Optional: bundle your own dogear designs here
 ```
+
+## Testing
+
+This plugin has been tested on Amazon Kindle 10th generation.
