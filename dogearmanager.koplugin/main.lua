@@ -48,8 +48,7 @@ local S_SCALE_FACTOR     = "dogear_scale_factor"
 local S_MARGIN_TOP       = "dogear_margin_top"
 local S_MARGIN_RIGHT     = "dogear_margin_right"
 
--- Margin scaling: right margin increments are 1.85x larger than top
-local MARGIN_RATIO = 1.85
+-- Margin scaling: top and right increments use the same base step size
 local MAX_STEPS = 20
 
 local DogearManager = WidgetContainer:extend{
@@ -67,12 +66,13 @@ local SUPPORTED_EXTENSIONS = {
     [".jpeg"] = true,
 }
 
---- Compute pixel step sizes for margins based on current screen.
--- @return top_step_px, right_step_px (right is 1.85x top)
+--- Compute pixel step size for margins based on current screen.
+-- Both top and right use the same step so one increment moves equally.
+-- @return step_px, step_px
 local function getMarginStepSizes()
     local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
     local base = math.max(2, math.ceil(screen_min / 128))
-    return base, math.ceil(base * MARGIN_RATIO)
+    return base, base
 end
 
 --- Convert step count to pixels for top margin.
@@ -320,15 +320,16 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
     local vspan_lg  = Size.span.vertical_default * 2
     local btn_h     = Screen:scaleBySize(52)
 
-    -- Corner preview: scaled representation of the dogear position
+    -- Corner preview: scaled representation of the dogear position.
+    -- A single uniform scale factor is used for both axes so that equal pixel
+    -- margins (top and right) appear visually equal in the preview as well.
     local corner_h = math.floor(Screen:getHeight() / 7)
     local corner_w = inner_w
-    local repr_h = Screen:getHeight() / 6
-    local repr_w = Screen:getWidth()
+    local scale_factor = corner_w / Screen:getWidth()
 
-    local prev_mt   = math.floor(margin_top_px   * corner_h / repr_h)
-    local prev_mr   = math.floor(margin_right_px * corner_w / repr_w)
-    local prev_icon = math.max(8, math.floor(preview_px * corner_h / repr_h))
+    local prev_mt   = math.floor(margin_top_px   * scale_factor)
+    local prev_mr   = math.floor(margin_right_px * scale_factor)
+    local prev_icon = math.max(8, math.floor(preview_px * scale_factor))
 
     prev_mt   = math.min(prev_mt, corner_h - prev_icon - 2)
     prev_mr   = math.min(prev_mr, corner_w - prev_icon - 2)
@@ -548,7 +549,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             LeftContainer:new{
                 dimen = Geom:new{ w = inner_w, h = Screen:scaleBySize(18) },
                 TextWidget:new{
-                    text = _("Right steps are 1.85\u{00D7} larger than top"),
+                    text = _("Top and right steps move the dogear by equal amounts"),
                     face = Font:getFace("smallinfofont", 14),
                 },
             },

@@ -32,7 +32,7 @@ A dialog with:
 - **Live corner preview** — a scaled-down representation of the top-right corner so you can see the result before applying.
 - **Design picker** — arrow buttons to cycle through available icons.
 - **Size** — scale from 0.5× to 4.0×, adjusted in 0.1 steps (or 0.5 with the double buttons).
-- **Position** — top and right margin in discrete steps (0–20). Right steps are physically larger than top steps (ratio ~1.85×) to account for screen aspect ratio.
+- **Position** — top and right margin in discrete steps (0–20). Each step moves the dogear by the same distance in both directions.
 
 Hit **Apply** to save and update the dogear live. **Reset** clears all custom settings at once.
 
@@ -68,7 +68,7 @@ The plugin stores its settings in KOReader's global config (`G_reader_settings`)
 | `dogear_custom_icon_name` | Filename of the selected icon (for display) |
 | `dogear_scale_factor` | Size multiplier, default `1` |
 | `dogear_margin_top` | Top margin in steps (each step ≈ `screen_min / 128` px) |
-| `dogear_margin_right` | Right margin in steps (each step ≈ `1.85 × top_step` px) |
+| `dogear_margin_right` | Right margin in steps (each step ≈ `screen_min / 128` px, same as top) |
 
 ## File Structure
 
