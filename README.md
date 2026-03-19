@@ -1,6 +1,6 @@
-# Dogear Manager — KOReader Plugin
+# Custom Bookmark / Dogear Manager — KOReader Plugin
 
-Change the dogear (the folded-corner bookmark) in KOReader without touching a config file. Swap the image, scale it up or down, and nudge its position — all from a menu while reading.
+Change the bookmark icon / dogear (the folded-corner bookmark) in KOReader without touching a config file. Swap the image, scale it up or down, and nudge its position — all from a menu while reading.
 
 ## Requirements
 
