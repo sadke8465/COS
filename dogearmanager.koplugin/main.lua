@@ -247,14 +247,16 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
     mt_steps = math.max(0, math.min(MAX_STEPS, mt_steps))
     mr_steps = math.max(0, math.min(MAX_STEPS, mr_steps))
 
-    -- Compute pixel values for preview
-    local top_step_px, right_step_px = getMarginStepSizes()
-    local margin_top_px = mt_steps * top_step_px
-    local margin_right_px = mr_steps * right_step_px
-
-    local screen_min = math.min(Screen:getWidth(), Screen:getHeight())
-    local base_px = math.ceil(screen_min / 32)
-    local preview_px = math.max(12, math.ceil(base_px * scale))
+    -- Save originals on first open so Cancel can revert
+    if not self._slider_originals then
+        self._slider_originals = {
+            scale     = G_reader_settings:readSetting(S_SCALE_FACTOR) or 1,
+            mt        = G_reader_settings:readSetting(S_MARGIN_TOP)   or 0,
+            mr        = G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0,
+            icon      = G_reader_settings:readSetting(S_CUSTOM_ICON),
+            icon_name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME),
+        }
+    end
 
     -- Scan designs once and pass through rebuilds
     if not designs then
@@ -277,34 +279,32 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
 
     local selected_icon_path = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].path or nil
     local selected_icon_name = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].text or nil
-    local custom_icon = selected_icon_path
-
-    local function makeIconWidget(sz)
-        if custom_icon and lfs.attributes(custom_icon, "mode") == "file" then
-            return ImageWidget:new{
-                file   = custom_icon,
-                width  = sz,
-                height = sz,
-                alpha  = true,
-            }
-        else
-            return FrameContainer:new{
-                width      = sz,
-                height     = sz,
-                background = Blitbuffer.COLOR_BLACK,
-                bordersize = 0,
-                padding    = 0,
-            }
-        end
-    end
 
     -- Rebuild: close and reopen with new parameters (passes designs to avoid rescan)
     local top_widget
     local rebuild_pending = false
 
+    -- Apply values to settings and update the live dog ear behind the modal
+    local function applyLivePreview(ns, nmt, nmr, ni)
+        G_reader_settings:saveSetting(S_SCALE_FACTOR, ns)
+        G_reader_settings:saveSetting(S_MARGIN_TOP,   nmt)
+        G_reader_settings:saveSetting(S_MARGIN_RIGHT, nmr)
+        local ni_path = (ni > 0 and designs[ni]) and designs[ni].path or nil
+        local ni_name = (ni > 0 and designs[ni]) and designs[ni].text or nil
+        if ni_path then
+            G_reader_settings:saveSetting(S_CUSTOM_ICON,      ni_path)
+            G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, ni_name)
+        else
+            G_reader_settings:delSetting(S_CUSTOM_ICON)
+            G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
+        end
+        self:applyDogearToLive()
+    end
+
     local function rebuild(ns, nmt, nmr, ni)
         if rebuild_pending then return end
         rebuild_pending = true
+        applyLivePreview(ns, nmt, nmr, ni)
         UIManager:close(top_widget)
         UIManager:scheduleIn(0, function()
             self:showSizeSlider(ns, nmt, nmr, ni, designs)
@@ -319,38 +319,6 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
     local vspan_sm  = Size.span.vertical_default
     local vspan_lg  = Size.span.vertical_default * 2
     local btn_h     = Screen:scaleBySize(52)
-
-    -- Corner preview: scaled representation of the dogear position.
-    -- A single uniform scale factor is used for both axes so that equal pixel
-    -- margins (top and right) appear visually equal in the preview as well.
-    local corner_h = math.floor(Screen:getHeight() / 7)
-    local corner_w = inner_w
-    local scale_factor = corner_w / Screen:getWidth()
-
-    local prev_mt   = math.floor(margin_top_px   * scale_factor)
-    local prev_mr   = math.floor(margin_right_px * scale_factor)
-    local prev_icon = math.max(8, math.floor(preview_px * scale_factor))
-
-    prev_mt   = math.min(prev_mt, corner_h - prev_icon - 2)
-    prev_mr   = math.min(prev_mr, corner_w - prev_icon - 2)
-    local left_fill = math.max(0, corner_w - prev_mr - prev_icon)
-
-    local corner_preview = FrameContainer:new{
-        width      = corner_w,
-        height     = corner_h,
-        background = Blitbuffer.COLOR_WHITE,
-        bordersize = Size.border.default,
-        padding    = 0,
-        VerticalGroup:new{
-            align = "left",
-            VerticalSpan:new{ width = math.max(0, prev_mt) },
-            HorizontalGroup:new{
-                align = "top",
-                HorizontalSpan:new{ width = left_fill },
-                makeIconWidget(prev_icon),
-            },
-        },
-    }
 
     -- === DESIGN section ===
     local icon_btn_w  = math.floor(inner_w * 0.18)
@@ -464,6 +432,22 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             text = _("Cancel"),
             width = act_btn_w,
             callback = function()
+                -- Revert the live dog ear to the original settings
+                local orig = self._slider_originals
+                if orig then
+                    G_reader_settings:saveSetting(S_SCALE_FACTOR, orig.scale)
+                    G_reader_settings:saveSetting(S_MARGIN_TOP,   orig.mt)
+                    G_reader_settings:saveSetting(S_MARGIN_RIGHT, orig.mr)
+                    if orig.icon then
+                        G_reader_settings:saveSetting(S_CUSTOM_ICON,      orig.icon)
+                        G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, orig.icon_name)
+                    else
+                        G_reader_settings:delSetting(S_CUSTOM_ICON)
+                        G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
+                    end
+                    self:applyDogearToLive()
+                    self._slider_originals = nil
+                end
                 UIManager:close(top_widget)
             end,
         },
@@ -472,6 +456,7 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             text = _("Reset"),
             width = act_btn_w,
             callback = function()
+                self._slider_originals = nil
                 UIManager:close(top_widget)
                 self:resetAll()
                 UIManager:show(InfoMessage:new{ text = _("Bookmark settings reset."), timeout = 2 })
@@ -482,18 +467,9 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
             text = _("Apply"),
             width = act_btn_w,
             callback = function()
-                G_reader_settings:saveSetting(S_SCALE_FACTOR, scale)
-                G_reader_settings:saveSetting(S_MARGIN_TOP, mt_steps)
-                G_reader_settings:saveSetting(S_MARGIN_RIGHT, mr_steps)
-                if selected_icon_path then
-                    G_reader_settings:saveSetting(S_CUSTOM_ICON, selected_icon_path)
-                    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, selected_icon_name)
-                else
-                    G_reader_settings:delSetting(S_CUSTOM_ICON)
-                    G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
-                end
+                -- Settings already applied live; just commit and close
+                self._slider_originals = nil
                 UIManager:close(top_widget)
-                self:applyDogearToLive()
                 UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
             end,
         },
@@ -513,12 +489,6 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
                 face = Font:getFace("cfont", 22),
                 bold = true,
             },
-            VerticalSpan:new{ width = vspan_lg },
-
-            -- Preview
-            sectionLabel(_("Preview"), inner_w),
-            VerticalSpan:new{ width = vspan_sm },
-            corner_preview,
             VerticalSpan:new{ width = vspan_lg },
 
             -- Design section
