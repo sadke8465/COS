@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin
+        run: |
+          zip -r "dogearmanager-${{ steps.version.outputs.version }}.zip" dogearmanager.koplugin/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Dogear Manager ${{ steps.version.outputs.version }}"
+          body: |
+            ## Installation
+
+            1. Download `dogearmanager-${{ steps.version.outputs.version }}.zip` below
+            2. Extract the `dogearmanager.koplugin` folder
+            3. Copy `dogearmanager.koplugin` into your KOReader plugins directory (e.g. `/mnt/us/koreader/plugins/`)
+            4. Restart KOReader — the plugin appears under **Tools → Dogear Manager**
+
+            Requires KOReader v2025.10 or later.
+          files: "dogearmanager-${{ steps.version.outputs.version }}.zip"
+          draft: false
+          prerelease: false
