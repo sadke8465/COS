@@ -470,7 +470,9 @@ function DogearManager:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desig
                 -- Settings already applied live; just commit and close
                 self._slider_originals = nil
                 UIManager:close(top_widget)
-                UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
+                UIManager:scheduleIn(0, function()
+                    UIManager:show(InfoMessage:new{ text = _("Bookmark updated."), timeout = 2 })
+                end)
             end,
         },
     }
