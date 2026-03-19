@@ -2,6 +2,9 @@
 
 Change the bookmark icon / dogear (the folded-corner bookmark) in KOReader without touching a config file. Swap the image, scale it up or down, and nudge its position — all from a menu while reading.
 
+![Plugin Menu](.assets/1_Plugin_Menu.png)
+![Bookmark Dialog](.assets/5_Bookmark_Dialog_2.png)
+
 ## Requirements
 
 - KOReader v2025.10+
@@ -38,6 +41,16 @@ Hit **Apply** to save and update the dogear live. **Reset** clears all custom se
 ### Reset to Original Dogear
 
 Clears the custom icon, scale, and margin settings in one tap. The dogear reverts to KOReader's default immediately.
+
+## Screenshots
+
+![Plugin Menu](.assets/1_Plugin_Menu.png)
+![Submenus](.assets/2_Submenus.png)
+![Bookmark List](.assets/3_Bookmark_List.png)
+![Bookmark Dialog 1](.assets/4_Bookmark_Dialog_1.png)
+![Bookmark Dialog 2](.assets/5_Bookmark_Dialog_2.png)
+![Bookmark Dialog 3](.assets/6_Bookmark_Dialog_3.png)
+![Bookmark Updated](.assets/7_Bookmark_Updated.png)
 
 ## Adding Custom Designs
 
