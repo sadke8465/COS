@@ -4,7 +4,6 @@ Change the dogear (the folded-corner bookmark) in KOReader without touching a co
 
 ## Requirements
 
-- Jailbroken Amazon Kindle
 - KOReader v2025.10+
 
 ## Installation
@@ -29,7 +28,7 @@ Shows a scrollable list of all image files found in the custom icons folders. Ta
 ### Adjust Bookmark Size & Margins
 
 A dialog with:
-- **Live corner preview** — a scaled-down representation of the top-right corner so you can see the result before applying.
+
 - **Design picker** — arrow buttons to cycle through available icons.
 - **Size** — scale from 0.5× to 4.0×, adjusted in 0.1 steps (or 0.5 with the double buttons).
 - **Position** — top and right margin in discrete steps (0–20). Each step moves the dogear by the same distance in both directions.
