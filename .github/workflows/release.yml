@@ -6,6 +6,7 @@ on:
       - "v*"
     branches:
       - main
+      - "claude/reupload-release-*"
 
 jobs:
   release:
@@ -33,7 +34,7 @@ jobs:
           zip -r "dogearmanager-${{ steps.version.outputs.version }}.zip" dogearmanager.koplugin/
 
       - name: Delete existing release assets
-        if: github.ref == 'refs/heads/main'
+        if: startsWith(github.ref, 'refs/heads/')
         run: |
           RELEASE_ID=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
