@@ -47,10 +47,6 @@ local S_CUSTOM_ICON_NAME = "dogear_custom_icon_name"
 local S_SCALE_FACTOR     = "dogear_scale_factor"
 local S_MARGIN_TOP       = "dogear_margin_top"
 local S_MARGIN_RIGHT     = "dogear_margin_right"
-local S_INSTALL_PINGED   = "dogear_install_pinged"
-
-local GITHUB_REPO = "sadke8465/Koreader-Custom-Bookmark-Manager"
-
 -- Margin scaling: top and right increments use the same base step size
 local MAX_STEPS = 20
 
@@ -684,31 +680,8 @@ function DogearManager:patchReaderDogear()
     self:applyDogearToLive()
 end
 
---- Ping the GitHub releases API once per device to signal an install.
--- Fires 10 seconds after first launch so it doesn't delay startup.
--- Retries on subsequent launches until it receives an HTTP 200 response.
-function DogearManager:checkFirstInstall()
-    if G_reader_settings:readSetting(S_INSTALL_PINGED) then return end
-    UIManager:scheduleIn(10, function()
-        pcall(function()
-            local https_ok, https = pcall(require, "ssl.https")
-            if not https_ok then
-                -- No HTTPS support on this build; skip permanently.
-                G_reader_settings:saveSetting(S_INSTALL_PINGED, true)
-                return
-            end
-            local url = "https://api.github.com/repos/" .. GITHUB_REPO .. "/releases/latest"
-            local _, code = https.request(url)
-            if code == 200 then
-                G_reader_settings:saveSetting(S_INSTALL_PINGED, true)
-            end
-        end)
-    end)
-end
-
 function DogearManager:init()
     self.ui.menu:registerToMainMenu(self)
-    self:checkFirstInstall()
 end
 
 function DogearManager:onReaderReady()
