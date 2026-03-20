@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+      - "claude/reupload-release-*"
 
 jobs:
   release:
@@ -15,17 +18,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get version from tag
+      - name: Get version
         id: version
-        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=V1.0.0" >> "$GITHUB_OUTPUT"
+            echo "tag=V1.0.0" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Package plugin
         run: |
           zip -r "dogearmanager-${{ steps.version.outputs.version }}.zip" dogearmanager.koplugin/
 
-      - name: Create release
+      - name: Delete existing release assets
+        if: startsWith(github.ref, 'refs/heads/')
+        run: |
+          RELEASE_ID=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.version.outputs.tag }}" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+          if [ -n "$RELEASE_ID" ]; then
+            ASSET_IDS=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" \
+              | python3 -c "import sys,json; [print(a['id']) for a in json.load(sys.stdin)]" 2>/dev/null)
+            for AID in $ASSET_IDS; do
+              curl -s -X DELETE \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/repos/${{ github.repository }}/releases/assets/${AID}"
+            done
+          fi
+
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "${{ steps.version.outputs.tag }}"
           name: "Dogear Manager ${{ steps.version.outputs.version }}"
           body: |
             ## Installation
