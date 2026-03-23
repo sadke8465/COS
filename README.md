@@ -11,6 +11,8 @@ Change the bookmark icon / dogear (the folded-corner bookmark) in KOReader witho
 
 ## Installation
 
+### Kindle
+
 1. Connect your Kindle via USB.
 2. Drop the `dogearmanager.koplugin` folder into your KOReader plugins directory:
    ```
@@ -18,7 +20,16 @@ Change the bookmark icon / dogear (the folded-corner bookmark) in KOReader witho
    ```
 3. Restart KOReader.
 
-That's it. The plugin shows up under **Tools → Dogear Manager**.
+### Kobo
+
+1. Connect your Kobo via USB.
+2. Drop the `dogearmanager.koplugin` folder into your KOReader plugins directory:
+   ```
+   /mnt/onboard/.adds/koreader/plugins/dogearmanager.koplugin/
+   ```
+3. Restart KOReader.
+
+The plugin shows up under **Tools → Dogear Manager**.
 
 ## Usage
 
@@ -62,8 +73,14 @@ dogearmanager.koplugin/icons/
 ```
 
 **User-specific** (won't be overwritten if you update the plugin):
+
+Kindle:
 ```
 /mnt/us/koreader/icons/dogears/
+```
+Kobo:
+```
+/mnt/onboard/.adds/koreader/icons/dogears/
 ```
 
 Supported formats: `.png`, `.svg`, `.bmp`, `.jpg`, `.jpeg`, `.alpha`
@@ -93,4 +110,4 @@ dogearmanager.koplugin/
 
 ## Testing
 
-This plugin has been tested on Amazon Kindle 10th generation.
+This plugin has been tested on Amazon Kindle 10th generation. It is compatible with any device running KOReader, including Kobo.
