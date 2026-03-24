@@ -23,6 +23,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
+local RenderImage = require("ui/renderimage")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -645,12 +646,29 @@ function DogearManager:patchReaderDogear()
 
                 if icon_path and lfs.attributes(icon_path, "mode") == "file" and rd_self.icon then
                     rd_self.icon:free()
-                    rd_self.icon = ImageWidget:new{
-                        file   = icon_path,
-                        width  = rd_self.dogear_size,
-                        height = rd_self.dogear_size,
-                        alpha  = true,
-                    }
+                    local new_icon
+                    if G_reader_settings:isTrue("night_mode") then
+                        local image_bb = RenderImage:renderImageFile(
+                            icon_path, false,
+                            rd_self.dogear_size, rd_self.dogear_size)
+                        if image_bb then
+                            image_bb:invertColors()
+                            new_icon = ImageWidget:new{
+                                image = image_bb,
+                                image_disposable = true,
+                                alpha = true,
+                            }
+                        end
+                    end
+                    if not new_icon then
+                        new_icon = ImageWidget:new{
+                            file   = icon_path,
+                            width  = rd_self.dogear_size,
+                            height = rd_self.dogear_size,
+                            alpha  = true,
+                        }
+                    end
+                    rd_self.icon = new_icon
                     rd_self._dm_custom_icon = rd_self.icon
                 end
 
