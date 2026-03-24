@@ -23,7 +23,6 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
-local RenderImage = require("ui/renderimage")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -648,14 +647,20 @@ function DogearManager:patchReaderDogear()
                     rd_self.icon:free()
                     local new_icon
                     if G_reader_settings:isTrue("night_mode") then
-                        local image_bb = RenderImage:renderImageFile(
-                            icon_path, false,
-                            rd_self.dogear_size, rd_self.dogear_size)
-                        if image_bb then
-                            image_bb:invertColors()
+                        local ok, image_bb = pcall(function()
+                            local RenderImage = require("ui/renderimage")
+                            local bb = RenderImage:renderImageFile(
+                                icon_path, false,
+                                rd_self.dogear_size, rd_self.dogear_size)
+                            if bb then bb:invertColors() end
+                            return bb
+                        end)
+                        if ok and image_bb then
                             new_icon = ImageWidget:new{
                                 image = image_bb,
                                 image_disposable = true,
+                                width  = rd_self.dogear_size,
+                                height = rd_self.dogear_size,
                                 alpha = true,
                             }
                         end
