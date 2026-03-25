@@ -645,23 +645,16 @@ function DogearManager:patchReaderDogear()
 
                 if icon_path and lfs.attributes(icon_path, "mode") == "file" and rd_self.icon then
                     rd_self.icon:free()
+                    -- is_icon=true tells ImageWidget to skip pre-inversion so
+                    -- KOReader's global night-mode framebuffer inversion handles
+                    -- dark mode automatically (same as the built-in IconWidget).
                     local new_icon = ImageWidget:new{
-                        file   = icon_path,
-                        width  = rd_self.dogear_size,
-                        height = rd_self.dogear_size,
-                        alpha  = true,
+                        file    = icon_path,
+                        width   = rd_self.dogear_size,
+                        height  = rd_self.dogear_size,
+                        alpha   = true,
+                        is_icon = true,
                     }
-                    -- Dark mode: invert rendered pixel buffer (works for all formats)
-                    if G_reader_settings:isTrue("night_mode") then
-                        pcall(function()
-                            new_icon:getSize() -- force internal render
-                            if new_icon._bb then
-                                new_icon._bb:invertRect(0, 0,
-                                    new_icon._bb:getWidth(),
-                                    new_icon._bb:getHeight())
-                            end
-                        end)
-                    end
                     rd_self.icon = new_icon
                     rd_self._dm_custom_icon = rd_self.icon
                 end
