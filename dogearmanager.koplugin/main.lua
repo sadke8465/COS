@@ -646,28 +646,71 @@ function DogearManager:patchReaderDogear()
                 if icon_path and lfs.attributes(icon_path, "mode") == "file" and rd_self.icon then
                     rd_self.icon:free()
                     local new_icon
+                    local load_path = icon_path
                     if G_reader_settings:isTrue("night_mode") then
-                        local ok, image_bb = pcall(function()
-                            local RenderImage = require("ui/renderimage")
-                            local bb = RenderImage:renderImageFile(
-                                icon_path, false,
-                                rd_self.dogear_size, rd_self.dogear_size)
-                            if bb then bb:invertColors() end
-                            return bb
-                        end)
-                        if ok and image_bb then
-                            new_icon = ImageWidget:new{
-                                image = image_bb,
-                                image_disposable = true,
-                                width  = rd_self.dogear_size,
-                                height = rd_self.dogear_size,
-                                alpha = true,
-                            }
+                        local is_svg = icon_path:lower():match("%.svg$")
+                        if is_svg then
+                            -- SVG: swap black<->white at the text level (no RenderImage needed)
+                            local ok_svg, inv_path = pcall(function()
+                                local f = io.open(icon_path, "r")
+                                if not f then return nil end
+                                local svg = f:read("*all")
+                                f:close()
+                                -- Swap fill colors: black <-> white (use placeholder to avoid conflicts)
+                                svg = svg:gsub('(fill=")black(")', '%1__DM_WHITE__%2')
+                                svg = svg:gsub('(fill=")white(")', '%1black%2')
+                                svg = svg:gsub('__DM_WHITE__', 'white')
+                                svg = svg:gsub('(fill=")#000000(")', '%1__DM_FFF__%2')
+                                svg = svg:gsub('(fill=")#[Ff][Ff][Ff][Ff][Ff][Ff](")', '%1#000000%2')
+                                svg = svg:gsub('__DM_FFF__', '#ffffff')
+                                svg = svg:gsub('(fill=")#000(")', '%1__DM_F__%2')
+                                svg = svg:gsub('(fill=")#[Ff][Ff][Ff](")', '%1#000%2')
+                                svg = svg:gsub('__DM_F__', '#fff')
+                                -- Swap stroke colors too
+                                svg = svg:gsub('(stroke=")black(")', '%1__DM_WHITE__%2')
+                                svg = svg:gsub('(stroke=")white(")', '%1black%2')
+                                svg = svg:gsub('__DM_WHITE__', 'white')
+                                svg = svg:gsub('(stroke=")#000000(")', '%1__DM_FFF__%2')
+                                svg = svg:gsub('(stroke=")#[Ff][Ff][Ff][Ff][Ff][Ff](")', '%1#000000%2')
+                                svg = svg:gsub('__DM_FFF__', '#ffffff')
+                                svg = svg:gsub('(stroke=")#000(")', '%1__DM_F__%2')
+                                svg = svg:gsub('(stroke=")#[Ff][Ff][Ff](")', '%1#000%2')
+                                svg = svg:gsub('__DM_F__', '#fff')
+                                -- Write to a temp file
+                                local tmp = DataStorage:getDataDir() .. "/cache/dogear_darkmode.svg"
+                                local tf = io.open(tmp, "w")
+                                if not tf then return nil end
+                                tf:write(svg)
+                                tf:close()
+                                return tmp
+                            end)
+                            if ok_svg and inv_path then
+                                load_path = inv_path
+                            end
+                        else
+                            -- Non-SVG: render to blitbuffer and invert pixels
+                            local ok_render, image_bb = pcall(function()
+                                local RenderImage = require("ui/renderimage")
+                                local bb = RenderImage:renderImageFile(
+                                    icon_path, false,
+                                    rd_self.dogear_size, rd_self.dogear_size)
+                                if bb then bb:invertColors() end
+                                return bb
+                            end)
+                            if ok_render and image_bb then
+                                new_icon = ImageWidget:new{
+                                    image = image_bb,
+                                    image_disposable = true,
+                                    width  = rd_self.dogear_size,
+                                    height = rd_self.dogear_size,
+                                    alpha = true,
+                                }
+                            end
                         end
                     end
                     if not new_icon then
                         new_icon = ImageWidget:new{
-                            file   = icon_path,
+                            file   = load_path,
                             width  = rd_self.dogear_size,
                             height = rd_self.dogear_size,
                             alpha  = true,
